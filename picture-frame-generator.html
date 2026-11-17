@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Picture Frame Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: one column, 3D preview on top, grouped controls below, download last. */
+:root {
+  --bg: #f2f5f6; --surface: #ffffff; --text: #14232b; --muted: #5a6b73;
+  --accent: #0b7a75; --accent-ink: #ffffff; --line: #d5dde0; --warn: #9a5b00; --warn-bg: #fff3dc;
+  --stage: #e4eaec;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1a1e; --surface: #16252b; --text: #e6eef0; --muted: #8ea1a8;
+    --accent: #3cc4bb; --accent-ink: #062321; --line: #27383f; --warn: #f0b45a; --warn-bg: #2d2412;
+    --stage: #0b1316; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1a1e; --surface: #16252b; --text: #e6eef0; --muted: #8ea1a8;
+  --accent: #3cc4bb; --accent-ink: #062321; --line: #27383f; --warn: #f0b45a; --warn-bg: #2d2412;
+  --stage: #0b1316; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 22px; font-weight: 600; margin: 4px 0 0; text-wrap: balance; }
+.sub { margin: 2px 0 0; color: var(--muted); }
+.stage { position: relative; background: var(--stage); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; height: 320px; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.stage .hint { position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--muted); pointer-events: none; }
+.stage .nogl { padding: 24px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat b { display: block; font-family: var(--font-mono); font-weight: 500; font-size: 15px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.msgs { display: flex; flex-direction: column; gap: 8px; }
+.msg { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.msg.err { background: transparent; border: 1px solid var(--warn); }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+section h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+label small { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+input[type=number], select { width: 100%; font: inherit; font-family: var(--font-mono); font-size: 15px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 40px; }
+input[type=color] { width: 100%; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; cursor: pointer; min-height: 38px; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.check { flex-direction: row; align-items: center; gap: 10px; color: var(--text); font-size: 15px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.note { margin: 0; font-size: 13px; color: var(--muted); }
+.dl { font: inherit; font-weight: 600; font-size: 16px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 14px 16px; min-height: 52px; cursor: pointer; }
+.dl:disabled { opacity: .45; cursor: not-allowed; }
+.status { min-height: 20px; font-size: 13px; color: var(--muted); margin: 0; }
+@media (min-width: 640px) { .stats { grid-template-columns: repeat(3, 1fr); } .stage { height: 400px; } }
+@media (prefers-reduced-motion: no-preference) { .chip, .dl { transition: background-color .15s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Picture Frame Generator</h1>
+    <p class="sub">Set the photo size, pick a profile, and download print-ready STL files. All sizes in millimetres.</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="3D preview of the frame"></canvas>
+    <div class="hint">Drag to rotate, pinch or scroll to zoom</div>
+  </div>
+
+  <div class="chips" id="views" role="group" aria-label="Preview"></div>
+  <div class="stats" id="stats"></div>
+  <div class="msgs" id="msgs"></div>
+
+  <section>
+    <h2>Photo size</h2>
+    <div class="chips" id="presets"></div>
+    <div class="grid">
+      <label>Width <input id="w" type="number" inputmode="decimal" step="0.1" min="20"><small id="w_in"></small></label>
+      <label>Height <input id="h" type="number" inputmode="decimal" step="0.1" min="20"><small id="h_in"></small></label>
+      <label>Stack thickness <input id="stack" type="number" inputmode="decimal" step="0.1" min="0.5"><small>glass + photo + card</small></label>
+      <label>Gap per side <input id="gap" type="number" inputmode="decimal" step="0.05" min="0"><small>fit clearance</small></label>
+    </div>
+    <div class="chips"><button class="chip" id="swap" type="button">Swap portrait / landscape</button></div>
+  </section>
+
+  <section>
+    <h2>Frame</h2>
+    <div class="chips" id="styles" role="group" aria-label="Frame style"></div>
+    <div class="grid">
+      <label>Border width <input id="border" type="number" inputmode="decimal" step="0.5" min="1.2"><small>beyond the photo pocket</small></label>
+      <label>Front lip thickness <input id="lip" type="number" inputmode="decimal" step="0.1" min="0.8"><small>plastic over the photo</small></label>
+      <label>Overlap <input id="overlap" type="number" inputmode="decimal" step="0.5" min="1"><small>lip over photo edge</small></label>
+      <label>Style size <input id="feat" type="number" inputmode="decimal" step="0.5" min="0"><small>chamfer, round, bevel, step</small></label>
+      <label>Outer corner radius <input id="corner" type="number" inputmode="decimal" step="1" min="0"><small>0 = square</small></label>
+      <label>Window edge bevel <input id="bevel" type="number" inputmode="decimal" step="0.1" min="0"><small>0 = sharp</small></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Back, stand and hanger</h2>
+    <label class="check"><input id="plate" type="checkbox"> Include a back plate that sits in the pocket</label>
+    <div class="grid">
+      <label>Plate thickness <input id="plateT" type="number" inputmode="decimal" step="0.1" min="0.8"><small>2.4+ mm for screw heads</small></label>
+      <label>Hanging slots
+        <select id="hang">
+          <option value="none">None</option>
+          <option value="one">One keyhole, centered</option>
+          <option value="two">Two keyholes</option>
+        </select>
+      </label>
+      <label>Hanging edge
+        <select id="hangEdge">
+          <option value="top">Top, as the photo is shown</option>
+          <option value="side">Right side, to hang it turned 90°</option>
+          <option value="both">Both, hang either way</option>
+        </select>
+        <small>keyholes are viewed from the front</small>
+      </label>
+    </div>
+    <label class="check"><input id="stand" type="checkbox"> Add a kickstand (hinged leg)</label>
+    <div class="grid">
+      <label>Lean angle <input id="lean" type="number" inputmode="decimal" step="1" min="5" max="25"><small>degrees from vertical</small></label>
+    </div>
+    <p class="note" id="backNote">The plate is held in with glue or tape. A kickstand or hanging slots need the plate.</p>
+  </section>
+
+  <section>
+    <h2>Split into pieces</h2>
+    <div class="grid">
+      <label>Split
+        <select id="split">
+          <option value="auto">Auto, only if it does not fit the bed</option>
+          <option value="off">Off, one piece</option>
+          <option value="lr">Left and right halves</option>
+          <option value="tb">Top and bottom halves</option>
+          <option value="quad">Four corners, straight cuts</option>
+          <option value="diag">Four corners, diagonal (mitered)</option>
+        </select>
+      </label>
+      <label>Joint
+        <select id="joint">
+          <option value="key">Dovetail keys in the back, press in</option>
+          <option value="pins">Filament pins and glue</option>
+          <option value="butt">Flat joint, glue only</option>
+        </select>
+      </label>
+      <label>Joint fit <input id="fit" type="number" inputmode="decimal" step="0.05" min="-0.1" max="0.4"><small>mm clearance. Lower is tighter</small></label>
+      <label>Pin diameter <input id="pin" type="number" inputmode="decimal" step="0.05" min="1.5" max="3.2"><small>filament pins only</small></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Printing</h2>
+    <div class="grid">
+      <label>Orientation
+        <select id="orient">
+          <option value="face">Front face down</option>
+          <option value="back">Back down</option>
+        </select>
+      </label>
+      <label>Bed size <input id="bed" type="number" inputmode="decimal" step="1" min="50"><small>square, mm</small></label>
+      <label>Preview color <input id="color" type="color"></label>
+    </div>
+    <p class="note" id="orientNote"></p>
+    <label class="check"><input id="showPhoto" type="checkbox" checked> Show sample photo in preview</label>
+  </section>
+
+  <section>
+    <h2>Export</h2>
+    <label>Format
+      <select id="format">
+        <option value="stl">STL, one file per part</option>
+        <option value="3mf">3MF, parts laid out on the bed</option>
+        <option value="both">Both</option>
+      </select>
+    </label>
+    <p class="note">Everything downloads as one zip. The 3MF files are inside it; unzip first.</p>
+  </section>
+
+  <button class="dl" id="dl" type="button">Download STL files (.zip)</button>
+  <p class="status" id="status" role="status"></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/earcut@2.2.4/dist/earcut.min.js"></script>
+<script>
+// Pure geometry for the picture frame generator. No DOM.
+const _ec = (function () {
+  try { if (typeof earcut !== 'undefined') return earcut; } catch (e) { /* ignore */ }
+  try { if (typeof require !== 'undefined') return require('earcut'); } catch (e) { /* ignore */ }
+  return null;
+})();
+
+// ---------- basics
+function ringPts(hw, hh, d, r, n) {
+  const a = hw + d, b = hh + d;
+  r = Math.min(r, a, b);
+  const cs = [[a - r, -(b - r), -90], [a - r, b - r, 0], [-(a - r), b - r, 90], [-(a - r), -(b - r), 180]];
+  const pts = [];
+  for (const [cx, cy, a0] of cs) {
+    for (let k = 0; k <= n; k++) {
+      const ang = (a0 + (n === 0 ? 0 : 90 * k / n)) * Math.PI / 180;
+      pts.push([cx + r * Math.cos(ang), cy + r * Math.sin(ang)]);
+    }
+  }
+  return pts;
+}
+function area2(a, b, c) {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const x = uy * vz - uz * vy, y = uz * vx - ux * vz, z = ux * vy - uy * vx;
+  return x * x + y * y + z * z;
+}
+function cross3(a, b, c) {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  return [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+}
+function pushTri(out, a, b, c) { if (area2(a, b, c) > 1e-14) out.push([a, b, c]); }
+function signedArea(poly) {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; s += a[0] * b[1] - b[0] * a[1]; }
+  return s / 2;
+}
+function circle(cx, cy, r, n) {
+  const p = [];
+  for (let k = 0; k < n; k++) { const a = 2 * Math.PI * k / n; p.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
+  return p;
+}
+const toXYZ = (axis, u, v, w) => axis === 0 ? [w, u, v] : axis === 1 ? [v, w, u] : [u, v, w];
+const toUVW = (axis, p) => axis === 0 ? [p[1], p[2], p[0]] : axis === 1 ? [p[2], p[0], p[1]] : [p[0], p[1], p[2]];
+function mapTris(tris, axis) { return tris.map(t => t.map(p => toXYZ(axis, p[0], p[1], p[2]))); }
+function orient(t, exp) {
+  const n = cross3(t[0], t[1], t[2]);
+  return (n[0] * exp[0] + n[1] * exp[1] + n[2] * exp[2]) < 0 ? [t[0], t[2], t[1]] : t;
+}
+
+// Extrude a polygon (with optional holes) in the (u,v) plane from w=z0 to w=z1.
+function extrudePoly(outer, holes, z0, z1) {
+  holes = holes || [];
+  const rings = [signedArea(outer) >= 0 ? outer : outer.slice().reverse()];
+  holes.forEach(h => rings.push(signedArea(h) <= 0 ? h : h.slice().reverse()));
+  const tris = [];
+  for (const ring of rings) {
+    const n = ring.length;
+    for (let i = 0; i < n; i++) {
+      const a = ring[i], b = ring[(i + 1) % n];
+      const P0 = [a[0], a[1], z0], P1 = [b[0], b[1], z0], P2 = [a[0], a[1], z1], P3 = [b[0], b[1], z1];
+      pushTri(tris, P0, P1, P2); pushTri(tris, P1, P3, P2);
+    }
+  }
+  const all = [].concat.apply([], rings);
+  let idx = [];
+  if (_ec) {
+    const flat = [], hi = [];
+    rings.forEach((r, k) => { if (k > 0) hi.push(flat.length / 2); r.forEach(p => flat.push(p[0], p[1])); });
+    idx = _ec(flat, hi, 2);
+  } else {
+    if (holes.length) throw new Error('earcut missing');
+    for (let i = 1; i < all.length - 1; i++) idx.push(0, i, i + 1);
+  }
+  for (let k = 0; k < idx.length; k += 3) {
+    let A = all[idx[k]], B = all[idx[k + 1]], C = all[idx[k + 2]];
+    if ((B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]) < 0) { const t = B; B = C; C = t; }
+    pushTri(tris, [A[0], A[1], z1], [B[0], B[1], z1], [C[0], C[1], z1]);
+    pushTri(tris, [A[0], A[1], z0], [C[0], C[1], z0], [B[0], B[1], z0]);
+  }
+  return tris;
+}
+
+// ---------- frame
+function buildProfile(p) {
+  const { dp, dout, pt, T, style } = p;
+  let f = Math.max(0, p.f), g = Math.max(0, p.g);
+  const pts = [[0, pt], [dp, pt], [dp, 0], [dout, 0]];
+  const wall = (dout - dp) - 0.8;
+  let top = [], bevelF = 0;
+  if (style === 'flat') {
+    top = [[dout, T]];
+  } else if (style === 'chamfer') {
+    f = Math.max(0, Math.min(f, T - 0.8, wall));
+    top = f > 0.01 ? [[dout, T - f], [dout - f, T]] : [[dout, T]];
+  } else if (style === 'bevel') {
+    f = Math.max(0, Math.min(f, T - 1, (T - pt - 0.8) * dout / Math.max(dp, 1e-6)));
+    bevelF = f;
+    top = [[dout, T - f]];
+  } else if (style === 'round') {
+    f = Math.max(0, Math.min(f, T - 0.8, wall));
+    if (f > 0.01) {
+      for (let k = 0; k <= 8; k++) {
+        const ph = (k / 8) * Math.PI / 2;
+        top.push([dout - f + f * Math.cos(ph), T - f + f * Math.sin(ph)]);
+      }
+    } else top = [[dout, T]];
+  } else if (style === 'stepped') {
+    f = Math.max(0, Math.min(f, T - 1));
+    const ds = (dp + dout) / 2;
+    top = f > 0.01 ? [[dout, T - f], [ds, T - f], [ds, T]] : [[dout, T]];
+  }
+  const gg = Math.max(0, Math.min(g, T - pt - 0.8));
+  let end;
+  if (gg > 0.01) {
+    const zAt = bevelF > 0 ? T - bevelF * gg / dout : T;
+    end = [[gg, zAt], [0, T - gg]];
+  } else end = [[0, T]];
+  return pts.concat(top, end);
+}
+function profileTop(profile, d) {
+  let best = -1e9;
+  for (let i = 0; i < profile.length; i++) {
+    const a = profile[i], b = profile[(i + 1) % profile.length];
+    if (d < Math.min(a[0], b[0]) - 1e-9 || d > Math.max(a[0], b[0]) + 1e-9) continue;
+    if (Math.abs(b[0] - a[0]) < 1e-9) best = Math.max(best, a[1], b[1]);
+    else best = Math.max(best, a[1] + (d - a[0]) / (b[0] - a[0]) * (b[1] - a[1]));
+  }
+  return best;
+}
+function ringsFor(profile, hw, hh, dout, Ro, square, n) {
+  return profile.map(([d, z]) => {
+    const r = square ? 0 : Math.max(0, Ro - (dout - d));
+    return ringPts(hw, hh, d, r, square ? 0 : n).map(([x, y]) => [x, y, z]);
+  });
+}
+function sweep(profile, hw, hh, dout, Ro, square, n) {
+  const rings = ringsFor(profile, hw, hh, dout, Ro, square, n);
+  const P = rings.length, M = rings[0].length, tris = [];
+  for (let i = 0; i < P; i++) {
+    const i2 = (i + 1) % P;
+    for (let j = 0; j < M; j++) {
+      const j2 = (j + 1) % M;
+      const A = rings[i][j], B = rings[i][j2], C = rings[i2][j], D = rings[i2][j2];
+      pushTri(tris, A, B, C); pushTri(tris, B, D, C);
+    }
+  }
+  return tris;
+}
+
+function keyhole(cx, cy, R, sw, slot) {
+  const th = Math.asin(sw / R);
+  const a0 = Math.PI / 2 + th, a1 = Math.PI / 2 - th + 2 * Math.PI, N = 28, pts = [];
+  for (let k = 0; k <= N; k++) { const a = a0 + (a1 - a0) * k / N; pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); }
+  pts.push([cx + sw, cy + slot], [cx - sw, cy + slot]);
+  return pts;
+}
+
+const STAND = { pz: 6, lt: 4, phi: 35 };
+
+// o: photo w,h; stack; overlap; gap; border; lip; style; feat; bevel; corner; plate; plateT; hang; stand; lean
+function buildFrame(o) {
+  const square = !(o.corner > 0.01);
+  const n = 12;
+  const hw = (o.w - 2 * o.overlap) / 2, hh = (o.h - 2 * o.overlap) / 2;
+  const dp = o.overlap + o.gap;
+  const dout = dp + o.border;
+  const needPlate = !!(o.plate || o.stand || (o.hang && o.hang !== 'none'));
+  const pocketDepth = o.stack + (needPlate ? o.plateT : 0);
+  const T = o.lip + pocketDepth;
+  const profile = buildProfile({ dp, dout, pt: pocketDepth, T, style: o.style, f: o.feat, g: o.bevel });
+  const frame = sweep(profile, hw, hh, dout, o.corner, square, n);
+  const outerW = 2 * (hw + dout), outerH = 2 * (hh + dout);
+  const res = { frame, plate: null, leg: null, T, pocketDepth, outerW, outerH, winW: 2 * hw, winH: 2 * hh, dp, dout,
+                hw, hh, profile, Ro: square ? 0 : o.corner, needPlate, legLen: 0, legW: 0 };
+  if (needPlate) {
+    const c = 0.15;
+    const phw = hw + dp - c, phh = hh + dp - c;
+    const pr = Math.max(0, o.corner - (dout - dp) - c);
+    const sq = pr < 0.01;
+    const outer = ringPts(phw, phh, 0, sq ? 0 : pr, sq ? 0 : n);
+    const holes = [];
+    const hang = o.hang || 'none', edge = o.hangEdge || 'top';
+    res.hangUsed = hang;
+    if (hang !== 'none') {
+      const R = 4.75, sw = 2.3, slot = 9;
+      // same hole spacing on every edge, so the frame hangs on the same two screws either way up
+      const hsp = 0.28 * Math.min(phw, phh);
+      res.holeSpacing = 2 * hsp;
+      if (edge !== 'side') {
+        const cy = phh - 8 - slot;
+        const one = hang === 'one' && !o.cutX;
+        if (hang === 'one' && !one) res.hangUsed = 'two';
+        (one ? [0] : [-hsp, hsp]).forEach(x => holes.push(keyhole(x, cy, R, sw, slot)));
+      }
+      if (edge !== 'top') {
+        const cx = phw - 8 - slot;
+        const one = hang === 'one' && !o.cutY;
+        if (hang === 'one' && !one) res.hangUsed = 'two';
+        (one ? [0] : [-hsp, hsp]).forEach(y => {
+          holes.push(keyhole(0, 0, R, sw, slot).map(([px, py]) => [py + cx, -px + y]));
+        });
+      }
+    }
+    let tris = extrudePoly(outer, holes, 0, o.plateT);
+    const ears = [];
+    if (o.stand) {
+      const { pz, lt, phi } = STAND;
+      const ph = phi * Math.PI / 180, al = o.lean * Math.PI / 180;
+      const s = 0.6 * outerH;
+      const legLen = (s * Math.cos(al) - (T + pz) * Math.sin(al)) / Math.cos(ph - al);
+      const e = (pz - (lt / 2) * Math.cos(ph)) / Math.sin(ph);
+      const lw = Math.round(Math.min(30, Math.max(16, outerW * 0.1)));
+      const yp = -outerH / 2 + s;
+      const earOutline = [[yp - 4.2, -(pz + 4.2)], [yp + 4.2, -(pz + 4.2)], [yp + 4.2, 0.3], [yp - 4.2, 0.3]];
+      const hole = circle(yp, -pz, 1.05, 20);
+      const x0 = lw / 2 + 0.4, x1 = x0 + 3;
+      const eR = mapTris(extrudePoly(earOutline, [hole], x0, x1), 0), eL = mapTris(extrudePoly(earOutline, [hole], -x1, -x0), 0);
+      ears.push({ cx: (x0 + x1) / 2, cy: yp, tris: eR }, { cx: -(x0 + x1) / 2, cy: yp, tris: eL });
+      tris = tris.concat(eR, eL);
+      const legOutline = [[-legLen, -lt / 2], [e, -lt / 2], [e, lt / 2], [-legLen, lt / 2]];
+      res.leg = mapTris(extrudePoly(legOutline, [circle(0, 0, 1.05, 20)], -lw / 2, lw / 2), 0);
+      res.legLen = legLen; res.legW = lw; res.legExt = e; res.pivotY = yp;
+    }
+    res.plate = tris;
+    res.plateSpec = { outer, holes, t: o.plateT, ears };
+    res.plateW = 2 * phw; res.plateH = 2 * phh;
+  }
+  return res;
+}
+
+// ---------- cut planes
+function planeAxis(axis) {
+  const n = [0, 0, 0]; n[axis] = 1;
+  return { kind: 'axis', axis, c: 0, n, maleSide: 'neg',
+    dist: p => p[axis], uvw: p => toUVW(axis, p), xyz: (u, v, w) => toXYZ(axis, u, v, w) };
+}
+function planeDiag(nx, ny, c, maleSide, pointAtD) {
+  const tx = -ny, ty = nx;
+  return { kind: 'diag', c, n: [nx, ny, 0], maleSide, pointAtD,
+    dist: p => nx * p[0] + ny * p[1] - c,
+    uvw: p => [tx * p[0] + ty * p[1], p[2], nx * p[0] + ny * p[1]],
+    xyz: (u, v, w) => [u * tx + w * nx, u * ty + w * ny, v] };
+}
+
+// ---------- 2D triangulation that keeps collinear boundary points
+function earTris(rings) {
+  if (!_ec) throw new Error('earcut missing');
+  const all = [].concat.apply([], rings), flat = [], hi = [];
+  rings.forEach((r, k) => { if (k > 0) hi.push(flat.length / 2); r.forEach(p => flat.push(p[0], p[1])); });
+  const idx = _ec(flat, hi, 2);
+  const extras = (P, Q) => {
+    const dx = Q[0] - P[0], dy = Q[1] - P[1], L2 = dx * dx + dy * dy, found = [];
+    if (L2 < 1e-18) return found;
+    const L = Math.sqrt(L2);
+    for (const R of all) {
+      const t = ((R[0] - P[0]) * dx + (R[1] - P[1]) * dy) / L2;
+      if (t <= 1e-7 || t >= 1 - 1e-7) continue;
+      if (Math.abs((R[0] - P[0]) * dy - (R[1] - P[1]) * dx) / L > 1e-7) continue;
+      found.push([t, R]);
+    }
+    found.sort((a, b) => a[0] - b[0]);
+    return found.map(x => x[1]);
+  };
+  const t2 = [];
+  for (let k = 0; k < idx.length; k += 3) {
+    const A = all[idx[k]], B = all[idx[k + 1]], C = all[idx[k + 2]];
+    const eab = extras(A, B), ebc = extras(B, C), eca = extras(C, A);
+    if (!eab.length && !ebc.length && !eca.length) { t2.push([A, B, C]); continue; }
+    const poly = [A].concat(eab, [B], ebc, [C], eca);
+    const G = [(A[0] + B[0] + C[0]) / 3, (A[1] + B[1] + C[1]) / 3];
+    for (let i = 0; i < poly.length; i++) t2.push([G, poly[i], poly[(i + 1) % poly.length]]);
+  }
+  return t2;
+}
+
+// ---------- connector solids
+// Hole: surface of revolution going into the piece. prof = [[depth, radius], ...] ending at radius 0.
+function holeSurface(P, c, sign, h) {
+  const N = 24, out = [];
+  const pt = (r, d, a) => P.xyz(h.u + r * Math.cos(a), h.v + r * Math.sin(a), c - sign * d);
+  for (let i = 0; i < h.prof.length - 1; i++) {
+    const [d0, r0] = h.prof[i], [d1, r1] = h.prof[i + 1];
+    const dd = d1 - d0, dr = r1 - r0, len = Math.hypot(dd, dr) || 1;
+    const nd = dr / len, nr = -dd / len;
+    for (let k = 0; k < N; k++) {
+      const a0 = 2 * Math.PI * k / N, a1 = 2 * Math.PI * (k + 1) / N, am = (a0 + a1) / 2;
+      const A = pt(r0, d0, a0), B = pt(r0, d0, a1), C = pt(r1, d1, a0), D = pt(r1, d1, a1);
+      const e1 = P.xyz(nr * Math.cos(am), nr * Math.sin(am), 0), e2 = P.xyz(0, 0, -sign * nd);
+      const exp = [e1[0] + e2[0], e1[1] + e2[1], e1[2] + e2[2]];
+      [[A, B, C], [B, D, C]].forEach(t => { if (area2(t[0], t[1], t[2]) > 1e-14) out.push(orient(t, exp)); });
+    }
+  }
+  return out;
+}
+// Solid made of convex rings stacked along the connector axis. samples = [[a, R], ...]; ringFn(R) -> [[du, dv], ...]
+function latheShell(P, c, sign, cu, cv, samples, ringFn) {
+  const uvr = samples.map(([a, R]) => ringFn(R));
+  const rings = samples.map(([a], i) => uvr[i].map(q => P.xyz(cu + q[0], cv + q[1], c + sign * a)));
+  const w3 = P.xyz(0, 0, sign), out = [], M = rings[0].length;
+  const push = (t, exp) => { if (area2(t[0], t[1], t[2]) > 1e-14) out.push(orient(t, exp)); };
+  for (let i = 0; i < samples.length - 1; i++) {
+    const da = samples[i + 1][0] - samples[i][0], dR = samples[i + 1][1] - samples[i][1], len = Math.hypot(da, dR) || 1;
+    const na = -dR / len, nR = da / len;
+    let mx = 0, my = 0; uvr[i].forEach(q => { mx += q[0]; my += q[1]; }); mx /= M; my /= M;
+    for (let j = 0; j < M; j++) {
+      const j2 = (j + 1) % M;
+      let rx = uvr[i][j][0] - mx, ry = uvr[i][j][1] - my; const rl = Math.hypot(rx, ry) || 1;
+      const rh = P.xyz(rx / rl, ry / rl, 0);
+      const exp = [na * w3[0] + nR * rh[0], na * w3[1] + nR * rh[1], na * w3[2] + nR * rh[2]];
+      const A = rings[i][j], B = rings[i][j2], C = rings[i + 1][j], D = rings[i + 1][j2];
+      push([A, B, C], exp); push([B, D, C], exp);
+    }
+  }
+  [[0, -1], [samples.length - 1, 1]].forEach(([i, s]) => {
+    const exp = [s * w3[0], s * w3[1], s * w3[2]];
+    for (let j = 1; j < M - 1; j++) push([rings[i][0], rings[i][j], rings[i][j + 1]], exp);
+  });
+  return out;
+}
+const circRing = N => R => { const p = []; for (let k = 0; k < N; k++) { const a = 2 * Math.PI * k / N; p.push([R * Math.cos(a), R * Math.sin(a)]); } return p; };
+const segRing = (ug, Ns, mirror) => R => {
+  const phi = Math.acos(Math.min(0.999, ug / R)), p = [];
+  for (let k = 0; k <= Ns; k++) { const a = -phi + 2 * phi * k / Ns; p.push([(mirror ? -1 : 1) * R * Math.cos(a), R * Math.sin(a)]); }
+  return p;
+};
+function pegShells(P, c, sign, cn) {
+  const m = cn.male;
+  if (m.type === 'peg') {
+    return latheShell(P, c, sign, cn.u, cn.v, [[-0.5, m.rp], [m.L - 0.7, m.rp], [m.L, m.rp - 0.5]], circRing(24));
+  }
+  const base = latheShell(P, c, sign, cn.u, cn.v, [[-0.5, m.rs], [0.8, m.rs]], circRing(24));
+  const pr = [[0.5, m.rs], [m.a1, m.rs], [m.a1 + 0.08, m.rb], [m.L, m.rs - 0.3]];
+  return base.concat(latheShell(P, c, sign, cn.u, cn.v, pr, segRing(0.4, 8, false)),
+                     latheShell(P, c, sign, cn.u, cn.v, pr, segRing(0.4, 8, true)));
+}
+
+
+// ---------- dovetail back keys (separate printed bow-tie keys that sit in pockets in the back of the frame)
+const KEY_TAN = 0.15, KEY_COS = 1 / Math.sqrt(1 + KEY_TAN * KEY_TAN);
+function bowAt(k, o) { const hn = k.hn + o / KEY_COS, end = k.pw + o; return { hn, end, bE: hn + KEY_TAN * end }; }
+// full bow-tie outline, x along the key (across the joint), y across it
+function keyPoly(k, o) { const p = bowAt(k, o); return [[-p.end, -p.bE], [0, -p.hn], [p.end, -p.bE], [p.end, p.bE], [0, p.hn], [-p.end, p.bE]]; }
+// one half of the pocket as [a, b] points: a along the joint, b away from it
+function pocketHalf(k, o) { const p = bowAt(k, o); return [[-p.hn, 0], [-p.bE, p.end], [p.bE, p.end], [p.hn, 0]]; }
+function ringD(res, x, y) {
+  const ax = Math.abs(x), ay = Math.abs(y), hw = res.hw, hh = res.hh, dout = res.dout, Ro = res.Ro;
+  if (Ro > 0.01 && ax > hw + dout - Ro && ay > hh + dout - Ro) {
+    return Math.hypot(ax - (hw + dout - Ro), ay - (hh + dout - Ro)) - Ro + dout;
+  }
+  return Math.max(ax - hw, ay - hh);
+}
+function mkPocket(k, C, n) { return { k, C, n, t: [-n[1], n[0]] }; }
+const pkW = (pk, side, a, b, z) => [pk.C[0] + a * pk.t[0] + side * b * pk.n[0], pk.C[1] + a * pk.t[1] + side * b * pk.n[1], z];
+
+function planKey(res, o, locs) {
+  const bw = res.dout - res.dp, m = 1.0, clr = Math.max(0, o.fit == null ? 0.1 : o.fit);
+  const minOuter = Math.min(res.outerW, res.outerH);
+  const top = locs.every(l => l.diag) ? bw * 0.9 : bw / 2 - 1.2;
+  for (let ww = top; ww >= 2.4; ww -= 0.25) {
+    const hn = 0.6 * ww, pwCap = (ww - hn) / KEY_TAN;
+    const pwT = Math.min(pwCap, Math.max(1.5 * ww, 0.055 * minOuter));
+    for (const f of [1, 0.85, 0.72, 0.6, 0.5]) {
+      const pw = pwT * f;
+      if (pw < Math.max(4, ww)) continue;
+      const tauP = 0.3, k0 = { hn, pw, op0: clr, op1: clr - tauP };
+      const poly = keyPoly(k0, k0.op0);
+      let ok = true, tmin = 1e9;
+      for (const l of locs) {
+        const t = [-l.n[1], l.n[0]];
+        const pts = [[0, 0]];
+        for (let i = 0; i < poly.length; i++) {
+          const a = poly[i], b = poly[(i + 1) % poly.length];
+          for (let s = 0; s < 5; s++) pts.push([a[0] + (b[0] - a[0]) * s / 5, a[1] + (b[1] - a[1]) * s / 5]);
+        }
+        for (const [bx, ay] of pts) {
+          const x = l.C[0] + ay * t[0] + bx * l.n[0], y = l.C[1] + ay * t[1] + bx * l.n[1];
+          const d = ringD(res, x, y);
+          if (d < res.dp + m || d > res.dout - m) { ok = false; break; }
+          tmin = Math.min(tmin, profileTop(res.profile, d));
+        }
+        if (!ok) break;
+      }
+      if (!ok) continue;
+      const zd = Math.min(Math.max(3.5, Math.min(6, 0.8 * ww)), tmin - 1.2);
+      if (zd < 2.2) return null;
+      const kh = zd - 0.3;
+      const tauK = Math.max(0, tauP * kh / zd - clr - 0.04);
+      return { hn, pw, zd, kh, op0: clr, op1: clr - tauP, tauK, ww, len: 2 * pw, wide: 2 * bowAt({ hn, pw }, 0).bE, narrow: 2 * hn };
+    }
+  }
+  return null;
+}
+
+// Insert a detour into the run of "on the line" vertices of a closed loop that spans [a0, a1].
+function runDetour(loop, onLine, aOf, a0, a1, pathAsc) {
+  const n = loop.length;
+  let s0 = -1;
+  for (let i = 0; i < n; i++) if (!onLine(loop[i])) { s0 = i; break; }
+  if (s0 < 0) return null;
+  const L = loop.slice(s0).concat(loop.slice(0, s0));
+  let i = 0;
+  while (i < n) {
+    if (!onLine(L[i])) { i++; continue; }
+    let j = i; while (j + 1 < n && onLine(L[j + 1])) j++;
+    const run = L.slice(i, j + 1), av = run.map(aOf);
+    const amin = Math.min.apply(null, av), amax = Math.max.apply(null, av);
+    if (run.length >= 2 && amin < a0 - 1e-6 && amax > a1 + 1e-6) {
+      const asc = av[av.length - 1] > av[0];
+      const lo = p => aOf(p) < a0 - 1e-6, hi = p => aOf(p) > a1 + 1e-6;
+      const before = run.filter(asc ? lo : hi), after = run.filter(asc ? hi : lo);
+      const path = asc ? pathAsc : pathAsc.slice().reverse();
+      return L.slice(0, i).concat(before, path, after, L.slice(j + 1));
+    }
+    i = j + 1;
+  }
+  return null;
+}
+function notchCapLoop(P, uv, pk) {
+  const k = pk.k, c = P.c;
+  const w = q => P.xyz(q[0], q[1], c);
+  const aOf = q => { const p = w(q); return (p[0] - pk.C[0]) * pk.t[0] + (p[1] - pk.C[1]) * pk.t[1]; };
+  const h0 = bowAt(k, k.op0).hn, h1 = bowAt(k, k.op1).hn;
+  const toUV = (a, z) => P.uvw([pk.C[0] + a * pk.t[0], pk.C[1] + a * pk.t[1], z]).slice(0, 2);
+  return runDetour(uv, q => Math.abs(w(q)[2]) < 1e-7, aOf, -h0, h0,
+    [toUV(-h0, 0), toUV(-h1, k.zd), toUV(h1, k.zd), toUV(h0, 0)]);
+}
+function triPolyOverlap(tri, poly, m) {
+  const axes = [];
+  [tri, poly].forEach(pts => {
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length], ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey) || 1;
+      axes.push([ey / L, -ex / L]);
+    }
+  });
+  for (const ax of axes) {
+    let a0 = 1e18, a1 = -1e18, b0 = 1e18, b1 = -1e18;
+    tri.forEach(p => { const d = p[0] * ax[0] + p[1] * ax[1]; if (d < a0) a0 = d; if (d > a1) a1 = d; });
+    poly.forEach(p => { const d = p[0] * ax[0] + p[1] * ax[1]; if (d < b0) b0 = d; if (d > b1) b1 = d; });
+    if (a1 < b0 - m || b1 < a0 - m) return false;
+  }
+  return true;
+}
+// Remove the pocket opening from the flat back face of a piece and re-triangulate around it.
+function carveRegion(tris, pk, side) {
+  const k = pk.k;
+  const A = pocketHalf(k, k.op0).map(([a, b]) => pkW(pk, side, a, b, 0)), A2 = A.map(p => [p[0], p[1]]);
+  const keep = [], S = [];
+  for (const t of tris) {
+    const back = Math.abs(t[0][2]) < 1e-7 && Math.abs(t[1][2]) < 1e-7 && Math.abs(t[2][2]) < 1e-7 && cross3(t[0], t[1], t[2])[2] < 0;
+    if (back && triPolyOverlap(t.map(p => [p[0], p[1]]), A2, 0.01)) S.push(t); else keep.push(t);
+  }
+  if (!S.length) return null;
+  const dir = new Set();
+  S.forEach(t => { for (let i = 0; i < 3; i++) dir.add(pkey(t[i]) + '>' + pkey(t[(i + 1) % 3])); });
+  const edges = [];
+  S.forEach(t => { for (let i = 0; i < 3; i++) { const a = t[i], b = t[(i + 1) % 3]; if (!dir.has(pkey(b) + '>' + pkey(a))) edges.push([a, b]); } });
+  const start = new Map();
+  edges.forEach(e => { const kk = pkey(e[0]); if (!start.has(kk)) start.set(kk, []); start.get(kk).push(e); });
+  const used = new Set(), loops = [];
+  for (const e of edges) {
+    if (used.has(e)) continue;
+    const loop = []; let cur = e;
+    while (cur && !used.has(cur)) { used.add(cur); loop.push(cur[0]); const nx = start.get(pkey(cur[1])); cur = nx ? nx.find(x => !used.has(x)) : null; }
+    loops.push(loop);
+  }
+  const ar2 = l => Math.abs(signedArea(l.map(p => [p[0], p[1]])));
+  loops.sort((a, b) => ar2(b) - ar2(a));
+  const h0 = bowAt(k, k.op0).hn;
+  const aOf = p => (p[0] - pk.C[0]) * pk.t[0] + (p[1] - pk.C[1]) * pk.t[1];
+  const bOf = p => (p[0] - pk.C[0]) * pk.n[0] + (p[1] - pk.C[1]) * pk.n[1];
+  const outer = runDetour(loops[0], p => Math.abs(bOf(p)) < 1e-6, aOf, -h0, h0, [A[0], A[1], A[2], A[3]]);
+  if (!outer) return null;
+  const rings = [outer.map(p => [p[0], p[1]])].concat(loops.slice(1).map(l => l.map(p => [p[0], p[1]])));
+  const out = keep.slice();
+  earTris(rings).forEach(([a, b, c]) => {
+    const ar = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    if (ar > 0) { const t = b; b = c; c = t; }
+    pushTri(out, [a[0], a[1], 0], [b[0], b[1], 0], [c[0], c[1], 0]);
+  });
+  return out;
+}
+function pocketSolids(pk, side) {
+  const k = pk.k;
+  const A = pocketHalf(k, k.op0).map(([a, b]) => pkW(pk, side, a, b, 0));
+  const B = pocketHalf(k, k.op1).map(([a, b]) => pkW(pk, side, a, b, k.zd));
+  const mid = pkW(pk, side, 0, k.pw * 0.5, k.zd / 2), out = [];
+  const add = (a, b, c) => {
+    const cen = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+    const t = orient([a, b, c], [mid[0] - cen[0], mid[1] - cen[1], mid[2] - cen[2]]);
+    pushTri(out, t[0], t[1], t[2]);
+  };
+  add(B[0], B[1], B[2]); add(B[0], B[2], B[3]);
+  for (let i = 0; i < 3; i++) { add(A[i], A[i + 1], B[i + 1]); add(A[i], B[i + 1], B[i]); }
+  return out;
+}
+function finishPocket(tris, pk, side) {
+  const r = carveRegion(tris, pk, side);
+  return r ? r.concat(pocketSolids(pk, side)) : tris;
+}
+// the printed key itself: wide face (the back of the frame) down, narrowing a little toward the tip
+function keyTris(k) {
+  const b0 = keyPoly(k, 0), b1 = keyPoly(k, -k.tauK), n = b0.length, out = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const a = [b0[i][0], b0[i][1], 0], b = [b0[j][0], b0[j][1], 0], c = [b1[i][0], b1[i][1], k.kh], d = [b1[j][0], b1[j][1], k.kh];
+    pushTri(out, a, b, c); pushTri(out, b, d, c);
+  }
+  const cap = (poly, z, up) => earTris([poly]).forEach(([a, b, c]) => {
+    const ar = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    if ((ar > 0) !== up) { const t = b; b = c; c = t; }
+    pushTri(out, [a[0], a[1], z], [b[0], b[1], z], [c[0], c[1], z]);
+  });
+  cap(b1, k.kh, true); cap(b0, 0, false);
+  return out;
+}
+function keyVolume(k, n) { // pocket volume by Simpson over depth (for tests)
+  const ar = o => Math.abs(signedArea(keyPoly(k, o)));
+  let s = 0; const N = 200;
+  for (let i = 0; i <= N; i++) { const z = k.zd * i / N, o = k.op0 + (k.op1 - k.op0) * z / k.zd; s += ar(o) * (i === 0 || i === N ? 1 : i % 2 ? 4 : 2); }
+  return s * (k.zd / N) / 3;
+}
+
+// ---------- caps (with connector holes / pegs)
+function capTris(P, loops, sign, connFn, pockets) {
+  const out = [], c = P.c;
+  for (const loop of loops) {
+    if (loop.length < 3) continue;
+    let uv = loop.map(p => P.uvw(p).slice(0, 2));
+    (pockets || []).forEach(pk => { uv = notchCapLoop(P, uv, pk) || uv; });
+    const conns = connFn ? connFn(P, uv) : [];
+    const holes = [];
+    conns.forEach(cn => {
+      const male = cn.kind !== 'pin' && ((P.maleSide === 'neg') === (sign > 0));
+      if (male) pegShells(P, c, sign, cn).forEach(t => out.push(t));
+      else { holes.push(cn); holeSurface(P, c, sign, cn).forEach(t => out.push(t)); }
+    });
+    const rings = [uv].concat(holes.map(h => circle(h.u, h.v, h.prof[0][1], 24)));
+    earTris(rings).forEach(([A, B, C]) => {
+      const ar = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
+      if ((sign > 0 && ar < 0) || (sign < 0 && ar > 0)) { const t = B; B = C; C = t; }
+      pushTri(out, P.xyz(A[0], A[1], c), P.xyz(B[0], B[1], c), P.xyz(C[0], C[1], c));
+    });
+  }
+  return out;
+}
+
+// ---------- splitting
+function clipPoly(t, d, s, P) {
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const a = t[i], b = t[(i + 1) % 3], da = d[i], db = d[(i + 1) % 3];
+    if (s * da >= 0) out.push({ p: a, d: da });
+    if ((s * da > 0 && s * db < 0) || (s * da < 0 && s * db > 0)) {
+      const k = da / (da - db);
+      const p = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+      if (P.kind === 'axis') p[P.axis] = P.c;
+      out.push({ p, d: 0 });
+    }
+  }
+  return out;
+}
+const pkey = p => Math.round(p[0] * 1e5) + ',' + Math.round(p[1] * 1e5) + ',' + Math.round(p[2] * 1e5);
+
+function splitPlane(tris, P, connFn) {
+  const EPS = 1e-9, negT = [], posT = [], segs = [];
+  const fan = (poly, out) => { for (let i = 1; i < poly.length - 1; i++) pushTri(out, poly[0].p, poly[i].p, poly[i + 1].p); };
+  for (const t of tris) {
+    const d = t.map(p => { const v = P.dist(p); return Math.abs(v) < EPS ? 0 : v; });
+    const anyP = d[0] > 0 || d[1] > 0 || d[2] > 0, anyN = d[0] < 0 || d[1] < 0 || d[2] < 0;
+    if (!anyP) {
+      negT.push(t);
+      if (anyN) for (let i = 0; i < 3; i++) if (d[i] === 0 && d[(i + 1) % 3] === 0) segs.push([t[i], t[(i + 1) % 3]]);
+      continue;
+    }
+    if (!anyN) { posT.push(t); continue; }
+    const neg = clipPoly(t, d, -1, P), pos = clipPoly(t, d, 1, P);
+    fan(neg, negT); fan(pos, posT);
+    for (let i = 0; i < neg.length; i++) {
+      const a = neg[i], b = neg[(i + 1) % neg.length];
+      if (a.d === 0 && b.d === 0 && pkey(a.p) !== pkey(b.p)) segs.push([a.p, b.p]);
+    }
+  }
+  const start = new Map();
+  segs.forEach(s => start.set(pkey(s[0]), s));
+  const used = new Set(), loops = [];
+  for (const s of segs) {
+    if (used.has(s)) continue;
+    const loop = []; let cur = s;
+    while (cur && !used.has(cur)) { used.add(cur); loop.push(cur[0]); cur = start.get(pkey(cur[1])); }
+    loops.push(loop);
+  }
+  const act = (P.pockets || []).filter(pk => loops.some(lp => notchCapLoop(P, lp.map(p => P.uvw(p).slice(0, 2)), pk)));
+  let neg = negT.concat(capTris(P, loops, 1, connFn, act)), pos = posT.concat(capTris(P, loops, -1, connFn, act));
+  act.forEach(pk => { neg = finishPocket(neg, pk, -1); pos = finishPocket(pos, pk, 1); if (P.log) P.log.push(pk); });
+  return { neg, pos };
+}
+
+function splitSet(tris, cuts, connFn, pk) {
+  pk = pk || {};
+  const pl = ax => Object.assign(planeAxis(ax), { pockets: (ax === 0 ? pk.x : pk.y) || [], log: pk.log });
+  let pieces = [{ tris, sx: 0, sy: 0 }];
+  if (cuts.x) pieces = [].concat.apply([], pieces.map(p => {
+    const r = splitPlane(p.tris, pl(0), connFn);
+    return [{ tris: r.neg, sx: -1, sy: p.sy }, { tris: r.pos, sx: 1, sy: p.sy }];
+  }));
+  if (cuts.y) pieces = [].concat.apply([], pieces.map(p => {
+    const r = splitPlane(p.tris, pl(1), connFn);
+    return [{ tris: r.neg, sx: p.sx, sy: -1 }, { tris: r.pos, sx: p.sx, sy: 1 }];
+  }));
+  return pieces;
+}
+
+// Mitered split: four rails with 45 degree ends, built straight from the profile rings.
+function miterPlanes(res) {
+  const { hw, hh, dout, Ro } = res;
+  const square = Ro < 0.01, s2 = Math.SQRT1_2;
+  const pointAt = (sx, sy) => d => {
+    const r = square ? 0 : Math.max(0, Ro - (dout - d)), a = hw + d, b = hh + d;
+    return [sx * (a - r + r * s2), sy * (b - r + r * s2), 0];
+  };
+  return {
+    TR: planeDiag(s2, -s2, (hw - hh) * s2, 'neg', pointAt(1, 1)),
+    TL: planeDiag(s2, s2, (hh - hw) * s2, 'pos', pointAt(-1, 1)),
+    BR: planeDiag(s2, s2, (hw - hh) * s2, 'neg', pointAt(1, -1)),
+    BL: planeDiag(s2, -s2, (hh - hw) * s2, 'pos', pointAt(-1, -1))
+  };
+}
+function miterPieces(res, connFn, planes, pockets, log) {
+  const { profile, hw, hh, dout, Ro } = res;
+  const square = Ro < 0.01, n = 12;
+  const rings = ringsFor(profile, hw, hh, dout, Ro, square, n);
+  const P = rings.length, M = rings[0].length, k = square ? 1 : n + 1, mid = square ? 0 : n / 2;
+  const idx = { BR: mid, TR: k + mid, TL: 2 * k + mid, BL: 3 * k + mid };
+  planes = planes || miterPlanes(res);
+  if (pockets) Object.keys(pockets).forEach(c => { planes[c].pockets = [pockets[c]]; if (log) log.push(pockets[c]); });
+  const rails = [
+    { name: 'frame_top', js: idx.TR, je: idx.TL, sx: 0, sy: 1, ends: [['TR', 1], ['TL', -1]] },
+    { name: 'frame_right', js: idx.BR, je: idx.TR, sx: 1, sy: 0, ends: [['BR', -1], ['TR', -1]] },
+    { name: 'frame_left', js: idx.TL, je: idx.BL, sx: -1, sy: 0, ends: [['TL', 1], ['BL', 1]] },
+    { name: 'frame_bottom', js: idx.BL, je: idx.BR, sx: 0, sy: -1, ends: [['BL', -1], ['BR', 1]] }
+  ];
+  return rails.map(r => {
+    let tris = [];
+    for (let j = r.js; j !== r.je; j = (j + 1) % M) {
+      const j2 = (j + 1) % M;
+      for (let i = 0; i < P; i++) {
+        const i2 = (i + 1) % P;
+        const A = rings[i][j], B = rings[i][j2], C = rings[i2][j], D = rings[i2][j2];
+        pushTri(tris, A, B, C); pushTri(tris, B, D, C);
+      }
+    }
+    [[r.js, r.ends[0]], [r.je, r.ends[1]]].forEach(([jj, [corner, sign]]) => {
+      const loop = rings.map(ring => ring[jj]), PL = planes[corner];
+      capTris(PL, [loop], sign, connFn, PL.pockets).forEach(t => tris.push(t));
+      (PL.pockets || []).forEach(pk => { tris = finishPocket(tris, pk, -sign); });
+    });
+    return { tris, sx: r.sx, sy: r.sy, name: r.name };
+  });
+}
+
+// 2D split of the back plate (holes and ears go to the piece that contains them)
+function clip2(poly, axis, sign, off) {
+  off = off || 0;
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], da = sign * (a[axis] - off), db = sign * (b[axis] - off);
+    if (da >= 0) out.push(a);
+    if ((da > 0 && db < 0) || (da < 0 && db > 0)) {
+      const k = da / (da - db), p = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+      p[axis] = off; out.push(p);
+    }
+  }
+  return out;
+}
+function plateSplit(spec, cuts) {
+  const out = [];
+  const xs = cuts.x ? [-1, 1] : [0], ys = cuts.y ? [-1, 1] : [0];
+  for (const sy of ys) for (const sx of xs) {
+    let poly = spec.outer;
+    const ox = (cuts.ox || 0), oy = (cuts.oy || 0);
+    if (sx) poly = clip2(poly, 0, sx, ox);
+    if (sy) poly = clip2(poly, 1, sy, oy);
+    const inReg = (cx, cy) => (!sx || sx * (cx - ox) > 0) && (!sy || sy * (cy - oy) > 0);
+    const holes = spec.holes.filter(h => {
+      let mx = 0, my = 0; h.forEach(p => { mx += p[0]; my += p[1]; });
+      return inReg(mx / h.length, my / h.length);
+    });
+    let tris = extrudePoly(poly, holes, 0, spec.t);
+    spec.ears.forEach(e => { if (inReg(e.cx, e.cy)) tris = tris.concat(e.tris); });
+    out.push({ tris, sx, sy });
+  }
+  return out;
+}
+
+// ---------- connectors on the frame cut faces
+function pointInPoly(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+function frameConnFn(res, o, diag) {
+  const want = o.joint;
+  res.connUsed = 'none';
+  if (!want || want === 'butt') { res.connUsed = 'butt'; return null; }
+  const order = { snap: ['snap', 'peg', 'pin'], peg: ['peg', 'pin'], pins: ['pin'], pin: ['pin'] }[want] || ['pin'];
+  const fit = o.fit == null ? 0.05 : o.fit;
+  const { dp, dout, profile } = res, border = dout - dp, dm = dp + border / 2;
+  const straight = 0.9 * (Math.min(res.hw, res.hh) + dout - res.Ro);
+  const tAt = d => profileTop(profile, d);
+  const tmin = (d, rc) => Math.min(tAt(d - rc - 0.4), tAt(d + rc + 0.4), tAt(d), tAt(d - rc), tAt(d + rc));
+
+  const spec = (kind, sc) => {
+    let rc, L, Dh, dims;
+    if (kind === 'pin') { const r = (o.pin + 0.25) / 2; rc = r; L = 0; Dh = 8; dims = { r }; }
+    else if (kind === 'peg') { const rp = 1.5 * sc; rc = rp + fit; L = 7; Dh = L + 0.6; dims = { rp }; }
+    else { const rs = 1.4 * sc, rb = rs + 0.45; rc = rb + 0.15 + fit; L = 7.6; Dh = L + 0.6; dims = { rs, rb, rm: rs + 0.1 + fit, rc, a1: 4.0 }; }
+    // candidate radial positions
+    let cands;
+    if (diag) {
+      const d1 = dp + rc + 0.5, d2 = d1 + 2 * rc + 1.2;
+      cands = [[d1, d2], [d1]];
+    } else {
+      const delta = Math.min(border * 0.25, 5);
+      cands = [[dm - delta, dm + delta], [dm]];
+    }
+    for (const ds of cands) {
+      if (ds.length === 2 && !diag && (ds[1] - ds[0]) < 2 * rc + 1.6) continue;
+      let ok = true, tm = 1e9;
+      for (const d of ds) {
+        if (d - rc - 0.4 < dp + 0.05 || d + rc + 0.4 > dout - 0.3 && !diag) ok = false;
+        if (diag && d + (Dh) * Math.SQRT1_2 + rc > dout - 0.4) ok = false;
+        tm = Math.min(tm, tmin(d, rc));
+      }
+      if (!ok || tm < 2 * rc + 1.2) continue;
+      if (!diag && Dh > straight) continue;
+      return { kind, rc, L, Dh, dims, ds, zc: tm / 2 };
+    }
+    return null;
+  };
+  let plan = null;
+  for (const kind of order) {
+    const scales = kind === 'pin' ? [1] : [1, 0.9, 0.8, 0.7];
+    for (const sc of scales) { plan = spec(kind, sc); if (plan) break; }
+    if (plan) break;
+  }
+  if (!plan) { res.connUsed = 'none'; return null; }
+  res.connUsed = plan.kind; res.connCount = plan.ds.length; res.connDepth = plan.Dh; res.connL = plan.L;
+  const mk = (u, v) => {
+    const d = plan.dims;
+    if (plan.kind === 'pin') return { u, v, kind: 'pin', prof: [[0, d.r], [plan.Dh, d.r], [plan.Dh, 0]] };
+    if (plan.kind === 'peg') return { u, v, kind: 'peg', male: { type: 'peg', rp: d.rp, L: plan.L },
+      prof: [[0, d.rp + fit], [plan.Dh, d.rp + fit], [plan.Dh, 0]] };
+    return { u, v, kind: 'snap', male: { type: 'snap', rs: d.rs, rb: d.rb, a1: d.a1, L: plan.L },
+      prof: [[0, d.rm], [d.a1 - 0.1, d.rm], [d.a1 - 0.1, d.rc], [plan.Dh, d.rc], [plan.Dh, 0]] };
+  };
+  return (P, uv) => {
+    const list = [];
+    if (P.kind === 'axis') {
+      const radialIsU = P.axis === 0;
+      let m = 0; uv.forEach(q => { m += radialIsU ? q[0] : q[1]; }); m /= uv.length;
+      const s = m >= 0 ? 1 : -1, base = radialIsU ? res.hh : res.hw;
+      plan.ds.forEach(d => { const rad = s * (base + d); list.push(radialIsU ? [rad, plan.zc] : [plan.zc, rad]); });
+    } else {
+      plan.ds.forEach(d => { const q = P.uvw(P.pointAtD(d)); list.push([q[0], plan.zc]); });
+    }
+    return list.filter(([u, v]) => {
+      if (!pointInPoly([u, v], uv)) return false;
+      for (let k = 0; k < 8; k++) {
+        const a = Math.PI * k / 4;
+        if (!pointInPoly([u + (plan.rc + 0.2) * Math.cos(a), v + (plan.rc + 0.2) * Math.sin(a)], uv)) return false;
+      }
+      return true;
+    }).map(([u, v]) => mk(u, v));
+  };
+}
+
+// ---------- parts, orientation, packing
+function flipZ(tris, T) {
+  return tris.map(([a, b, c]) => [[a[0], a[1], T - a[2]], [c[0], c[1], T - c[2]], [b[0], b[1], T - b[2]]]);
+}
+function bbox(tris) {
+  const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+  tris.forEach(t => t.forEach(p => { for (let i = 0; i < 3; i++) { if (p[i] < mn[i]) mn[i] = p[i]; if (p[i] > mx[i]) mx[i] = p[i]; } }));
+  return { mn, mx };
+}
+function normalize(tris) {
+  const { mn, mx } = bbox(tris);
+  return { tris: tris.map(t => t.map(p => [p[0] - mn[0], p[1] - mn[1], p[2] - mn[2]])), w: mx[0] - mn[0], h: mx[1] - mn[1], d: mx[2] - mn[2] };
+}
+function rot90(tris) { return tris.map(t => t.map(p => [p[1], -p[0], p[2]])); }
+function tagName(base, sx, sy) { return base + ((sx || sy) ? '_' + (sy < 0 ? 'B' : sy > 0 ? 'T' : '') + (sx < 0 ? 'L' : sx > 0 ? 'R' : '') : ''); }
+
+function packPlates(parts, bed, gap) {
+  gap = gap || 4;
+  const edge = 2, lim = bed - 2 * edge;
+  parts.forEach(p => { if (p.w > lim && p.h <= lim) { const r = normalize(rot90(p.tris)); p.tris = r.tris; p.w = r.w; p.h = r.h; p.rotated = true; } });
+  const sorted = parts.slice().sort((a, b) => b.h - a.h);
+  const plates = [];
+  for (const p of sorted) {
+    let placed = false;
+    if (p.w <= lim && p.h <= lim) {
+      for (const pl of plates) {
+        if (pl.over) continue;
+        for (const row of pl.rows) {
+          if (p.h <= row.h && row.x + p.w <= bed - edge) { pl.items.push({ part: p, x: row.x, y: row.y }); row.x += p.w + gap; placed = true; break; }
+        }
+        if (placed) break;
+        if (pl.y + p.h <= bed - edge) {
+          pl.rows.push({ x: edge + p.w + gap, y: pl.y, h: p.h });
+          pl.items.push({ part: p, x: edge, y: pl.y }); pl.y += p.h + gap; placed = true; break;
+        }
+      }
+      if (!placed) plates.push({ rows: [{ x: edge + p.w + gap, y: edge, h: p.h }], y: edge + p.h + gap, items: [{ part: p, x: edge, y: edge }] });
+    } else {
+      plates.push({ over: true, rows: [], y: bed, items: [{ part: p, x: edge, y: edge }] });
+    }
+  }
+  return plates;
+}
+
+// o also: split ('off','auto','lr','tb','quad','diag'), joint ('key','pins','butt'), pin, fit, hang, hangEdge, stand, lean
+function buildModel(o, bed, face) {
+  const oo = Object.assign({ fit: 0.1, hangEdge: 'top', joint: 'key' }, o);
+  const lim = bed - 4, warnings = [];
+  const pre = buildFrame(Object.assign({}, oo, { cutX: false, cutY: false }));
+  const mode = oo.split || 'off';
+  let fc = { x: false, y: false }, pc = { x: false, y: false }, diag = false;
+  const need = { x: pre.plateW > lim, y: pre.plateH > lim };
+  if (mode === 'auto') { fc = { x: pre.outerW > lim, y: pre.outerH > lim }; pc = need; }
+  else if (mode === 'diag') {
+    const ratio = pre.winW / pre.winH;
+    if (ratio > 2 || ratio < 0.5) { warnings.push('Diagonal cuts need a window shaped less than 2:1. Four straight corner pieces are used instead.'); fc = { x: true, y: true }; pc = fc; }
+    else { diag = true; pc = need; }
+  }
+  else if (mode === 'lr') { fc = pc = { x: true, y: false }; }
+  else if (mode === 'tb') { fc = pc = { x: false, y: true }; }
+  else if (mode === 'quad') { fc = pc = { x: true, y: true }; }
+  const res = buildFrame(Object.assign({}, oo, { cutX: pc.x, cutY: pc.y }));
+  const cuts = fc;
+  const dm = res.dp + (res.dout - res.dp) / 2, xc = res.hw + dm, yc = res.hh + dm;
+  const railX = diag && res.outerW > lim, railY = diag && res.outerH > lim;   // long mitered rails get cut in the middle too
+  const anyCut = diag || fc.x || fc.y;
+  let want = oo.joint, key = null, connFn = null;
+  const keyLog = [];
+  if (anyCut && want === 'key') {
+    const locs = [];
+    let planes = null;
+    if (diag) {
+      planes = miterPlanes(res);
+      ['TR', 'TL', 'BR', 'BL'].forEach(c => { const q = planes[c].pointAtD(dm); locs.push({ C: [q[0], q[1]], n: [planes[c].n[0], planes[c].n[1]], diag: true, corner: c }); });
+      if (railX) locs.push({ C: [0, yc], n: [1, 0] }, { C: [0, -yc], n: [1, 0] });
+      if (railY) locs.push({ C: [xc, 0], n: [0, 1] }, { C: [-xc, 0], n: [0, 1] });
+    } else {
+      if (fc.x) locs.push({ C: [0, yc], n: [1, 0] }, { C: [0, -yc], n: [1, 0] });
+      if (fc.y) locs.push({ C: [xc, 0], n: [0, 1] }, { C: [-xc, 0], n: [0, 1] });
+    }
+    key = planKey(res, oo, locs);
+    if (key) { key.locs = locs; key.planes = planes; }
+    else { warnings.push('The border is too narrow or thin for a dovetail key. Filament pins are used instead.'); want = 'pins'; }
+  }
+  let framePieces;
+  if (key) {
+    res.connUsed = 'key';
+    const mkp = l => mkPocket(key, l.C, l.n);
+    if (diag) {
+      const pm = {}; key.locs.forEach(l => { if (l.corner) pm[l.corner] = mkp(l); });
+      framePieces = miterPieces(res, null, key.planes, pm, keyLog);
+      const split1 = (pieces, name, ax, pockets) => pieces.reduce((acc, p) => {
+        if (p.name !== name) { acc.push(p); return acc; }
+        const P = Object.assign(planeAxis(ax), { pockets, log: keyLog });
+        const r = splitPlane(p.tris, P, null);
+        const nm = ax === 0 ? ['L', 'R'] : ['B', 'T'];
+        acc.push(Object.assign({}, p, { tris: r.neg, name: name + '_' + nm[0], sx: ax === 0 ? -1 : p.sx, sy: ax === 1 ? -1 : p.sy }),
+                 Object.assign({}, p, { tris: r.pos, name: name + '_' + nm[1], sx: ax === 0 ? 1 : p.sx, sy: ax === 1 ? 1 : p.sy }));
+        return acc;
+      }, []);
+      if (railX) {
+        framePieces = split1(framePieces, 'frame_top', 0, [mkPocket(key, [0, yc], [1, 0])]);
+        framePieces = split1(framePieces, 'frame_bottom', 0, [mkPocket(key, [0, -yc], [1, 0])]);
+      }
+      if (railY) {
+        framePieces = split1(framePieces, 'frame_right', 1, [mkPocket(key, [xc, 0], [0, 1])]);
+        framePieces = split1(framePieces, 'frame_left', 1, [mkPocket(key, [-xc, 0], [0, 1])]);
+      }
+    } else {
+      const pk = { x: [], y: [], log: keyLog };
+      key.locs.forEach(l => (l.n[0] === 1 ? pk.x : pk.y).push(mkp(l)));
+      framePieces = splitSet(res.frame, fc, null, pk);
+    }
+  } else {
+    if (anyCut && want !== 'butt') {
+      connFn = frameConnFn(res, oo, diag);
+      if (res.connUsed === 'none') warnings.push('The border is too narrow or thin for any peg or pin. The pieces have flat joints; glue them.');
+      else if (oo.joint === 'key' || res.connUsed !== (want === 'pins' ? 'pin' : want)) {
+        if (oo.joint !== 'key') warnings.push('The border is too small for ' + (want === 'snap' ? 'snap pegs' : 'press-fit pegs') + ', so ' + (res.connUsed === 'peg' ? 'press-fit pegs' : 'filament pin holes') + ' are used instead.');
+      }
+    } else res.connUsed = anyCut ? 'butt' : 'none';
+    framePieces = diag ? miterPieces(res, connFn) : splitSet(res.frame, fc, connFn);
+  }
+  framePieces = framePieces.map(p => Object.assign(p, { name: p.name || tagName('frame', p.sx, p.sy), kind: 'frame' }));
+  let platePieces = [];
+  if (res.plate && (pc.x || pc.y) && res.hangUsed && res.hangUsed !== 'none') {
+    // keep every keyhole on one plate piece: cut just past the holes instead of through the middle
+    const hs = (res.holeSpacing || 0) / 2, clearH = hs + 4.75 + 5, edge = oo.hangEdge || 'top';
+    const pcc = Object.assign({}, pc);
+    if (pc.y && edge !== 'top' && res.hangUsed !== 'one') { const o2 = -clearH; if (res.plateH / 2 - clearH <= lim && res.plateH / 2 + clearH <= lim && res.plateH - (res.plateH / 2 - clearH) <= lim) pcc.oy = o2; }
+    if (pc.x && edge !== 'side' && res.hangUsed !== 'one') { const o2 = -clearH; if (res.plateW / 2 + clearH <= lim && res.plateW / 2 - clearH <= lim) pcc.ox = o2; }
+    pc = pcc;
+  }
+  if (res.plate) platePieces = plateSplit(res.plateSpec, pc).map(p => Object.assign(p, { name: tagName('back_plate', p.sx, p.sy), kind: 'plate' }));
+  const parts = [];
+  framePieces.concat(platePieces).forEach(p => {
+    const t = p.kind === 'frame' ? (face ? flipZ(p.tris, res.T) : p.tris) : flipZ(p.tris, oo.plateT);
+    const nz = normalize(t);
+    parts.push({ name: p.name, kind: p.kind, tris: nz.tris, w: nz.w, h: nz.h, d: nz.d });
+  });
+  if (res.leg) { const nz = normalize(res.leg); parts.push({ name: 'kickstand_leg', kind: 'leg', tris: nz.tris, w: nz.w, h: nz.h, d: nz.d }); }
+  if (key) {
+    res.keyDims = key; res.connCount = keyLog.length;
+    const kt = normalize(keyTris(key));
+    for (let i = 0; i < keyLog.length; i++) parts.push({ name: 'key_' + (i + 1), kind: 'key', tris: kt.tris, w: kt.w, h: kt.h, d: kt.d });
+  }
+  const plates = packPlates(parts, bed, 4);
+  plates.forEach(pl => { if (pl.over) warnings.push('"' + pl.items[0].part.name + '" is ' + Math.round(pl.items[0].part.w) + ' × ' + Math.round(pl.items[0].part.h) + ' mm, larger than the ' + bed + ' mm bed. Split it into more pieces.'); });
+  return { res, cuts, diag, framePieces, platePieces, parts, plates, warnings, key, keyCount: keyLog.length };
+}
+
+// ---------- file writers
+function stlBinary(tris, name) {
+  const buf = new ArrayBuffer(84 + 50 * tris.length);
+  const dv = new DataView(buf);
+  const hdr = (name || 'frame').slice(0, 79);
+  for (let i = 0; i < hdr.length; i++) dv.setUint8(i, hdr.charCodeAt(i) & 127);
+  dv.setUint32(80, tris.length, true);
+  let off = 84;
+  for (const [a, b, c] of tris) {
+    const n = cross3(a, b, c);
+    const l = Math.hypot(n[0], n[1], n[2]) || 1;
+    dv.setFloat32(off, n[0] / l, true); dv.setFloat32(off + 4, n[1] / l, true); dv.setFloat32(off + 8, n[2] / l, true);
+    off += 12;
+    for (const p of [a, b, c]) {
+      dv.setFloat32(off, p[0], true); dv.setFloat32(off + 4, p[1], true); dv.setFloat32(off + 8, p[2], true);
+      off += 12;
+    }
+    dv.setUint16(off, 0, true); off += 2;
+  }
+  return buf;
+}
+
+function make3MF(items, title) {
+  const f = v => (Math.round(v * 1e4) / 1e4).toString();
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  let objs = '', build = '';
+  items.forEach((it, i) => {
+    const id = i + 1, vmap = new Map(), verts = [], tr = [];
+    const vi = p => { const k = pkey(p); let j = vmap.get(k); if (j === undefined) { j = verts.length; vmap.set(k, j); verts.push(p); } return j; };
+    it.tris.forEach(t => { const a = vi(t[0]), b = vi(t[1]), c = vi(t[2]); if (a !== b && b !== c && a !== c) tr.push([a, b, c]); });
+    objs += '<object id="' + id + '" name="' + esc(it.name) + '" type="model"><mesh><vertices>' +
+      verts.map(v => '<vertex x="' + f(v[0]) + '" y="' + f(v[1]) + '" z="' + f(v[2]) + '"/>').join('') +
+      '</vertices><triangles>' + tr.map(t => '<triangle v1="' + t[0] + '" v2="' + t[1] + '" v3="' + t[2] + '"/>').join('') +
+      '</triangles></mesh></object>';
+    build += '<item objectid="' + id + '" transform="1 0 0 0 1 0 0 0 1 ' + f(it.x) + ' ' + f(it.y) + ' 0"/>';
+  });
+  const model = '<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">' +
+    '<metadata name="Title">' + esc(title) + '</metadata><metadata name="Application">Picture Frame Generator</metadata>' +
+    '<resources>' + objs + '</resources><build>' + build + '</build></model>';
+  return {
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
+    '3D/3dmodel.model': model
+  };
+}
+
+
+</script>
+<script>
+(function () {
+  var DEF = { w: 127, h: 177.8, stack: 3, gap: 0.3, border: 15, lip: 2.4, overlap: 4, feat: 3, corner: 0, bevel: 0,
+              plate: true, plateT: 2.4, hang: 'none', hangEdge: 'top', stand: false, lean: 15, split: 'auto', joint: 'key', pin: 1.75, fit: 0.1,
+              bed: 220, orient: 'face', style: 'flat', color: '#d9d4c7', showPhoto: true, format: 'stl', view: 'assembled' };
+  var s = Object.assign({}, DEF);
+  var NUM = ['w', 'h', 'stack', 'gap', 'border', 'lip', 'overlap', 'feat', 'corner', 'bevel', 'plateT', 'lean', 'pin', 'fit', 'bed'];
+  var SEL = ['hang', 'hangEdge', 'split', 'joint', 'orient', 'format'];
+  var PRESETS = [['4×6 in', 101.6, 152.4], ['5×7 in', 127, 177.8], ['8×10 in', 203.2, 254], ['A5', 148, 210], ['A4', 210, 297], ['Square 4 in', 101.6, 101.6]];
+  var STYLES = [['flat', 'Flat'], ['chamfer', 'Chamfer'], ['bevel', 'Bevel'], ['round', 'Round'], ['stepped', 'Stepped']];
+  var VIEWS = [['assembled', 'Assembled'], ['layout', 'Print layout']];
+  var $ = function (id) { return document.getElementById(id); };
+  var model = null;
+
+  // ----- controls
+  NUM.forEach(function (k) { $(k).value = s[k]; });
+  SEL.forEach(function (k) { $(k).value = s[k]; });
+  $('plate').checked = s.plate; $('stand').checked = s.stand; $('color').value = s.color;
+
+  PRESETS.forEach(function (p) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = p[0];
+    b.addEventListener('click', function () { s.w = p[1]; s.h = p[2]; $('w').value = s.w; $('h').value = s.h; update(); });
+    $('presets').appendChild(b);
+  });
+  STYLES.forEach(function (st) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = st[1]; b.dataset.style = st[0];
+    b.addEventListener('click', function () {
+      s.style = st[0]; s.orient = st[0] === 'flat' ? 'face' : 'back'; $('orient').value = s.orient; update();
+    });
+    $('styles').appendChild(b);
+  });
+  VIEWS.forEach(function (v) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = v[1]; b.dataset.view = v[0];
+    b.addEventListener('click', function () { s.view = v[0]; el = v[0] === 'layout' ? 1.2 : 0.95; az = v[0] === 'layout' ? 0 : -0.45; zoom = 1; update(); });
+    $('views').appendChild(b);
+  });
+  $('swap').addEventListener('click', function () { var t = s.w; s.w = s.h; s.h = t; $('w').value = s.w; $('h').value = s.h; update(); });
+  NUM.forEach(function (k) {
+    $(k).addEventListener('input', function () { var v = parseFloat($(k).value); s[k] = isFinite(v) ? v : DEF[k]; update(); });
+  });
+  SEL.forEach(function (k) { $(k).addEventListener('change', function () { s[k] = $(k).value; update(); }); });
+  $('plate').addEventListener('change', function () { s.plate = $('plate').checked; update(); });
+  $('stand').addEventListener('change', function () { s.stand = $('stand').checked; update(); });
+  $('color').addEventListener('input', function () { s.color = $('color').value; update(); });
+  $('showPhoto').addEventListener('change', function () { s.showPhoto = $('showPhoto').checked; update(); });
+
+  // ----- 3D preview
+  var renderer, scene, camera, group, ready = false;
+  var az = -0.45, el = 0.95, zoom = 1, baseR = 300, dirty = true;
+  function initGL() {
+    if (typeof THREE === 'undefined') { $('stage').insertAdjacentHTML('beforeend', '<div class="nogl">The 3D preview could not load. The download still works.</div>'); return; }
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: $('cv'), antialias: true, alpha: true });
+    } catch (e) { $('stage').insertAdjacentHTML('beforeend', '<div class="nogl">3D preview is not available in this browser. The download still works.</div>'); return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(35, 1, 1, 8000);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x556070, 0.9));
+    var key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(-200, 400, 250); scene.add(key);
+    var fill = new THREE.DirectionalLight(0xffffff, 0.3); fill.position.set(250, 100, -150); scene.add(fill);
+    group = new THREE.Group(); group.rotation.x = -Math.PI / 2; scene.add(group);
+    ready = true; resize();
+    var cv = $('cv'), ptrs = {}, pinch0 = 0;
+    cv.addEventListener('pointerdown', function (e) { cv.setPointerCapture(e.pointerId); ptrs[e.pointerId] = [e.clientX, e.clientY]; pinch0 = 0; cv.style.cursor = 'grabbing'; });
+    cv.addEventListener('pointerup', function (e) { delete ptrs[e.pointerId]; pinch0 = 0; cv.style.cursor = 'grab'; });
+    cv.addEventListener('pointercancel', function (e) { delete ptrs[e.pointerId]; pinch0 = 0; });
+    cv.addEventListener('pointermove', function (e) {
+      var p = ptrs[e.pointerId]; if (!p) return;
+      var ids = Object.keys(ptrs);
+      if (ids.length === 1) {
+        az -= (e.clientX - p[0]) * 0.008; el += (e.clientY - p[1]) * 0.008;
+        el = Math.max(-1.45, Math.min(1.45, el));
+      } else if (ids.length === 2) {
+        ptrs[e.pointerId] = [e.clientX, e.clientY];
+        var a = ptrs[ids[0]], b = ptrs[ids[1]], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinch0) zoom = Math.max(0.3, Math.min(3, zoom * pinch0 / d));
+        pinch0 = d; dirty = true; return;
+      }
+      ptrs[e.pointerId] = [e.clientX, e.clientY]; dirty = true;
+    });
+    cv.addEventListener('wheel', function (e) { e.preventDefault(); zoom = Math.max(0.3, Math.min(3, zoom * (1 + e.deltaY * 0.001))); dirty = true; }, { passive: false });
+    window.addEventListener('resize', resize);
+    if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
+    (function loop() { if (dirty && ready) { draw(); dirty = false; } requestAnimationFrame(loop); })();
+  }
+  function resize() {
+    if (!ready) return;
+    var r = $('stage').getBoundingClientRect();
+    renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); dirty = true;
+  }
+  function draw() {
+    var r = baseR * zoom;
+    camera.position.set(r * Math.cos(el) * Math.sin(az), r * Math.sin(el), r * Math.cos(el) * Math.cos(az));
+    camera.lookAt(0, 0, 0); renderer.render(scene, camera);
+  }
+  function geomFrom(tris) {
+    var pos = new Float32Array(tris.length * 9), i = 0;
+    tris.forEach(function (t) { t.forEach(function (p) { pos[i++] = p[0]; pos[i++] = p[1]; pos[i++] = p[2]; }); });
+    var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+  }
+  function photoTexture(w, h) {
+    var c = document.createElement('canvas');
+    if (w >= h) { c.width = 256; c.height = Math.max(32, Math.round(256 * h / w)); } else { c.height = 256; c.width = Math.max(32, Math.round(256 * w / h)); }
+    var x = c.getContext('2d'), W = c.width, H = c.height;
+    var g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#5d8fb8'); g.addColorStop(0.6, '#f0c48a'); g.addColorStop(1, '#e48a5a');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#f7e7b0'; x.beginPath(); x.arc(W * 0.7, H * 0.42, Math.min(W, H) * 0.09, 0, 7); x.fill();
+    x.fillStyle = '#35495a'; x.beginPath(); x.moveTo(0, H); x.lineTo(0, H * 0.72); x.lineTo(W * 0.25, H * 0.55); x.lineTo(W * 0.45, H * 0.72); x.lineTo(W * 0.7, H * 0.6); x.lineTo(W, H * 0.78); x.lineTo(W, H); x.fill();
+    return new THREE.CanvasTexture(c);
+  }
+  function clearGroup() {
+    while (group.children.length) {
+      var m = group.children[0]; group.remove(m);
+      if (m.geometry) m.geometry.dispose();
+      if (m.material) { if (m.material.map) m.material.map.dispose(); m.material.dispose(); }
+    }
+  }
+  function mat(color) { return new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.05 }); }
+  function updatePreview(m) {
+    if (!ready) return;
+    clearGroup();
+    var res = m.res, base = new THREE.Color(s.color);
+    if (s.view === 'assembled') {
+      var ex = m.framePieces.length > 1 ? 3 : 0;
+      m.framePieces.forEach(function (p) {
+        var mesh = new THREE.Mesh(geomFrom(p.tris), mat(base));
+        mesh.position.set(p.sx * ex, p.sy * ex, 0); group.add(mesh);
+      });
+      if (s.showPhoto) {
+        var ph = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), new THREE.MeshBasicMaterial({ map: photoTexture(s.w, s.h) }));
+        ph.position.z = res.pocketDepth - 0.1; group.add(ph);
+      }
+      group.position.set(0, -res.T / 2, 0);
+      baseR = Math.max(res.outerW, res.outerH) * 2.1 + 40;
+    } else {
+      var n = m.plates.length, pitch = s.bed + 20, total = n * pitch - 20;
+      var cols = { frame: base, plate: base.clone().offsetHSL(0, 0, -0.12), leg: base.clone().offsetHSL(0, 0, -0.22), key: new THREE.Color('#c0603a') };
+      m.plates.forEach(function (pl, i) {
+        var ox = i * pitch;
+        var pts = [new THREE.Vector3(ox, 0, 0), new THREE.Vector3(ox + s.bed, 0, 0), new THREE.Vector3(ox + s.bed, s.bed, 0), new THREE.Vector3(ox, s.bed, 0)];
+        group.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x8a9aa0 })));
+        pl.items.forEach(function (it) {
+          var mesh = new THREE.Mesh(geomFrom(it.part.tris), mat(cols[it.part.kind] || base));
+          mesh.position.set(ox + it.x, it.y, 0); group.add(mesh);
+        });
+      });
+      group.position.set(-total / 2, 0, s.bed / 2);
+      baseR = Math.max(total, s.bed) * 1.5 + 60;
+    }
+    dirty = true;
+  }
+
+  // ----- model + stats
+  function volume(tris) {
+    var v = 0;
+    tris.forEach(function (t) { var a = t[0], b = t[1], c = t[2];
+      v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6; });
+    return v;
+  }
+  function fmt(n, d) { return (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toString(); }
+  function inch(mm) { return fmt(mm / 25.4, 2) + ' in'; }
+  function opts() {
+    return { w: s.w, h: s.h, stack: s.stack, overlap: s.overlap, gap: s.gap, border: s.border, lip: s.lip, style: s.style,
+             feat: s.feat, bevel: s.bevel, corner: s.corner, plate: s.plate, plateT: s.plateT, hang: s.hang, hangEdge: s.hangEdge, stand: s.stand,
+             lean: s.lean, split: s.split, joint: s.joint, pin: s.pin, fit: s.fit };
+  }
+  function validate() {
+    var e = [];
+    if (s.w - 2 * s.overlap < 10 || s.h - 2 * s.overlap < 10) e.push('The window is under 10 mm. Lower the overlap or enlarge the photo.');
+    if (s.border < 1.2) e.push('Border width must be at least 1.2 mm.');
+    if (s.lip < 0.8) e.push('Front lip must be at least 0.8 mm.');
+    if (s.overlap < 1) e.push('Overlap must be at least 1 mm.');
+    if (s.stack < 0.5) e.push('Stack thickness must be at least 0.5 mm.');
+    if (s.gap < 0) e.push('Gap cannot be negative.');
+    if (s.plateT < 0.8) e.push('Plate thickness must be at least 0.8 mm.');
+    if (s.stand && (s.lean < 5 || s.lean > 25)) e.push('Lean angle must be between 5 and 25 degrees.');
+    if (s.pin < 1.5 || s.pin > 3.2) e.push('Pin diameter must be between 1.5 and 3.2 mm.');
+    if (s.fit < -0.1 || s.fit > 0.4) e.push('Joint fit must be between -0.1 and 0.4 mm.');
+    if (s.bed < 50) e.push('Bed size must be at least 50 mm.');
+    if (typeof earcut === 'undefined' && (s.hang !== 'none' || s.split !== 'off' || s.stand)) e.push('A helper library did not load, so hanging slots, the kickstand and splitting are unavailable. Reload the page.');
+    return e;
+  }
+  function update() {
+    $('w_in').textContent = inch(s.w); $('h_in').textContent = inch(s.h);
+    Array.prototype.forEach.call($('styles').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.style === s.style)); });
+    Array.prototype.forEach.call($('views').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.view === s.view)); });
+    var needPlate = s.hang !== 'none' || s.stand;
+    $('plate').checked = s.plate || needPlate; $('plate').disabled = needPlate;
+    var errs = validate(), warns = [], msgs = $('msgs'); msgs.innerHTML = '';
+    model = null;
+    if (!errs.length) {
+      try { model = buildModel(opts(), s.bed, s.orient === 'face'); }
+      catch (ex) { errs.push('Could not build this combination of settings. Try a wider border or a smaller style size.'); model = null; }
+    }
+    if (model) {
+      var res = model.res;
+      var vol = 0; model.parts.forEach(function (p) { vol += volume(p.tris); });
+      var nPieces = model.framePieces.length;
+      var tiles = [
+        [fmt(res.outerW, 1) + ' × ' + fmt(res.outerH, 1) + ' mm', 'Outer size'],
+        [fmt(res.winW, 1) + ' × ' + fmt(res.winH, 1) + ' mm', 'Visible window'],
+        [fmt(res.T, 1) + ' mm', 'Total thickness'],
+        [model.parts.length + ' parts on ' + model.plates.length + (model.plates.length === 1 ? ' plate' : ' plates'), nPieces > 1 ? nPieces + ' frame pieces' : 'Parts to print'],
+        ['≈ ' + fmt(vol / 1000 * 1.24, 0) + ' g', 'Solid PLA weight']
+      ];
+      if (s.stand) tiles.push([fmt(res.legLen, 0) + ' mm leg', 'Leans ' + fmt(s.lean, 0) + '° back']);
+      if (model.key) tiles.push([model.keyCount + ' × ' + fmt(model.key.len, 0) + ' × ' + fmt(model.key.wide, 0) + ' mm', 'Dovetail keys']);
+      if (res.holeSpacing) tiles.push([fmt(res.holeSpacing, 1) + ' mm', 'Keyhole spacing, every edge']);
+      $('stats').innerHTML = tiles.map(function (x) { return '<div class="stat"><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('');
+      model.warnings.forEach(function (w) { warns.push(w); });
+      if (res.dp > 6.5 && s.orient === 'back') warns.push('The lip bridges ' + fmt(res.dp, 1) + ' mm over the pocket. Over about 6 mm it may sag; print front face down or reduce the overlap.');
+      if (s.border < 6) warns.push('A border under 6 mm is fragile at this thickness.');
+      if (s.hang !== 'none' && s.plateT < 1.8) warns.push('Keyhole slots are only as deep as the plate. Use 2.4 mm or more so a screw head can sit inside.');
+      if (s.hang === 'one' && res.hangUsed === 'two') warns.push('One centered keyhole would sit on a cut line, so two keyholes are used.');
+      if ((s.hang !== 'none' || s.stand) && res.outerH < 120) warns.push('This frame is small for the stand or hanging slots. They may overlap on the plate.');
+      if (s.stand && res.legLen > s.bed - 12) warns.push('The kickstand leg is ' + fmt(res.legLen, 0) + ' mm long and will not fit your bed. Print it diagonally or use a smaller frame.');
+      updatePreview(model);
+    }
+    errs.forEach(function (m) { msgs.insertAdjacentHTML('beforeend', '<div class="msg err">' + m + '</div>'); });
+    warns.forEach(function (m) { msgs.insertAdjacentHTML('beforeend', '<div class="msg">' + m + '</div>'); });
+    var flat = s.style === 'flat';
+    $('orientNote').textContent = s.orient === 'face'
+      ? (flat ? 'Front face down gives the smoothest face and needs no supports for a flat frame.' : 'Front face down needs supports under the shaped edge. Back down is usually better for this style.')
+      : 'Back down needs no supports; the lip bridges the pocket opening. The front shows normal layer lines.';
+    $('dl').disabled = !model;
+    $('status').textContent = '';
+  }
+
+  // ----- export
+  var dl = null, dlChecked = false;
+  function readme(m, tag) {
+    var L = [];
+    L.push('Picture frame ' + tag, '');
+    L.push('Parts: ' + m.parts.filter(function (p) { return p.kind !== 'key'; }).map(function (p) { return p.name; }).join(', ') + (m.keyCount ? ', key x' + m.keyCount : ''), '');
+    if (m.framePieces.length > 1) {
+      var cu = m.res.connUsed, cnt = m.res.connCount || 0;
+      if (cu === 'key') {
+        var kd = m.res.keyDims;
+        L.push('Joining the frame pieces (dovetail keys)', '  Print ' + cnt + ' keys (key_1 ... key_' + cnt + '), each ' + fmt(kd.len, 1) + ' mm long, ' + fmt(kd.wide, 1) + ' mm wide at the ends and ' + fmt(kd.narrow, 1) + ' mm at the waist. Every joint has a pocket in the BACK of the frame. Lay the pieces face down, side by side, and press a key into the pocket across the joint, wide face toward you. The bow-tie shape stops the pieces pulling apart, and the key narrows slightly toward its tip so it wedges tight as it seats. The front stays clean. Add a drop of glue for a permanent joint. If a key is too tight or loose, change "Joint fit" and reprint the keys and frame.', '');
+      } else if (cu === 'snap') {
+        L.push('Joining the frame pieces (snap-fit pegs)', '  Each joint has ' + cnt + ' split peg(s) on one piece and a matching hole on the other. Line the pieces up and push straight together until the barbs click. They hold without glue. A drop of glue makes the joint permanent. Print one joint first and adjust "Joint fit" if it is too tight or too loose.', '');
+      } else if (cu === 'peg') {
+        L.push('Joining the frame pieces (press-fit pegs)', '  Each joint has ' + cnt + ' peg(s) on one piece and a matching hole on the other. Press the pieces together; the fit is snug. Add a dab of glue for a permanent joint. If it is too tight or too loose, change "Joint fit" and reprint.', '');
+      } else if (cu === 'pin') {
+        L.push('Joining the frame pieces (filament pins)', '  Cut ' + s.pin + ' mm filament into pins about ' + fmt(2 * m.res.connDepth - 2, 0) + ' mm long. Each cut face has ' + cnt + ' hole(s), ' + fmt(m.res.connDepth, 0) + ' mm deep. Put glue on the faces and pins, then press the pieces together on a flat surface.', '');
+      } else L.push('Joining the frame pieces', '  The cut faces are flat. Glue them and clamp on a flat surface.', '');
+    }
+    if (s.stand) {
+      L.push('Kickstand', '  Set the leg between the two ears on the back plate. Push a length of 1.75 mm filament, about ' + (m.res.legW + 6) + ' mm long, through the ear, leg and ear holes. Melt or glue the ends so it cannot slide out. The short end of the leg stops it at a fixed angle.', '');
+    }
+    if (s.hang !== 'none') L.push('Hanging', '  The keyhole slots take a screw head up to 9.5 mm across with a shank up to 4.6 mm. Slide the frame down onto the screw.' + (s.hangEdge !== 'top' ? ' Slots on the right edge are for hanging the frame turned 90°, with its right side (seen from the front) at the top.' : '') + '', '');
+    L.push('Back plate', '  Set the photo and glass in the pocket, then the plate. Hold it with a few dabs of glue or tape.', '');
+    L.push('Printing', '  Frame orientation: ' + (s.orient === 'face' ? 'front face down' : 'back down') + '. The back plate prints with its inner face down. The 3MF files already place parts on a ' + s.bed + ' mm bed.');
+    return L.join('\n');
+  }
+  async function download() {
+    if (!model) return;
+    var st = $('status');
+    try {
+      st.textContent = 'Building files…';
+      var tag = Math.round(s.w) + 'x' + Math.round(s.h) + 'mm';
+      var zip = new JSZip();
+      if (s.format === 'stl' || s.format === 'both') {
+        var keyDone = false;
+        model.plates.forEach(function (pl) { pl.items.forEach(function (it) {
+          if (it.part.kind === 'key') {
+            if (keyDone) return; keyDone = true;
+            zip.file('stl/key_x' + model.keyCount + '_' + tag + '.stl', stlBinary(it.part.tris, 'key'));
+            return;
+          }
+          zip.file('stl/' + it.part.name + '_' + tag + '.stl', stlBinary(it.part.tris, it.part.name));
+        }); });
+      }
+      if (s.format === '3mf' || s.format === 'both') {
+        for (var i = 0; i < model.plates.length; i++) {
+          var pl = model.plates[i];
+          var items = pl.items.map(function (it) { return { name: it.part.name, tris: it.part.tris, x: it.x, y: it.y }; });
+          var files = make3MF(items, 'Picture frame ' + tag + ' plate ' + (i + 1));
+          var z3 = new JSZip();
+          Object.keys(files).forEach(function (k) { z3.file(k, files[k]); });
+          var bytes = await z3.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+          zip.file('3mf/plate_' + (i + 1) + '_' + tag + '.3mf', bytes);
+        }
+      }
+      zip.file('README.txt', readme(model, tag));
+      var blob = await zip.generateAsync({ type: 'blob' });
+      var fname = 'picture-frame-' + tag + '.zip';
+      if (dl) await dl.save({ filename: fname, data: blob });
+      else {
+        var url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+      }
+      st.textContent = 'Saved. Unzip it, then open the STL or 3MF files in your slicer.';
+    } catch (e) {
+      st.textContent = (e && e.code === 'declined') ? 'Download cancelled.' : 'Could not save the file. Try again.';
+    }
+  }
+  $('dl').addEventListener('click', download);
+  (async function () {
+    try { if (window.claude && window.claude.use) dl = await window.claude.use('downloads'); } catch (e) { dl = null; }
+    dlChecked = true;
+  })();
+
+  initGL();
+  update();
+})();
+</script>
+</body>
+</html>
