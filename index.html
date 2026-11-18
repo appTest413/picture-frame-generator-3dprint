@@ -35,6 +35,9 @@ h1 { font-size: 22px; font-weight: 600; margin: 4px 0 0; text-wrap: balance; }
 .stage { position: relative; background: var(--stage); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; height: 320px; }
 .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
 .stage .hint { position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--muted); pointer-events: none; }
+.stage .legend { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); pointer-events: none; background: rgba(255,255,255,.7); padding: 5px 7px; border-radius: 6px; }
+.stage .legend[hidden] { display: none; }
+.stage .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .stage .nogl { padding: 24px; color: var(--muted); }
 .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
@@ -68,11 +71,12 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 <div class="wrap">
   <header>
     <h1>Picture Frame Generator</h1>
-    <p class="sub">Set the photo size, pick a profile, and download print-ready STL files. All sizes in millimetres.</p>
+    <p class="sub">Set the photo size, pick a profile, and download print-ready STL files. <span id="unitNote">Sizes in millimetres.</span></p>
   </header>
 
   <div class="stage" id="stage">
     <canvas id="cv" aria-label="3D preview of the frame"></canvas>
+    <div class="legend" id="legend" hidden></div>
     <div class="hint">Drag to rotate, pinch or scroll to zoom</div>
   </div>
 
@@ -82,11 +86,15 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 
   <section>
     <h2>Photo size</h2>
+    <div class="grid"><label>Units
+      <select id="unit"><option value="mm">Millimetres (mm)</option><option value="in">Inches (in)</option></select>
+    </label></div>
     <div class="chips" id="presets"></div>
     <div class="grid">
       <label>Width <input id="w" type="number" inputmode="decimal" step="0.1" min="20"><small id="w_in"></small></label>
       <label>Height <input id="h" type="number" inputmode="decimal" step="0.1" min="20"><small id="h_in"></small></label>
-      <label>Stack thickness <input id="stack" type="number" inputmode="decimal" step="0.1" min="0.5"><small>glass + photo + card</small></label>
+      <label>Photo + backing <input id="stack" type="number" inputmode="decimal" step="0.1" min="0.5"><small>photo and card, no glass</small></label>
+      <label>Glass or acrylic <input id="glass" type="number" inputmode="decimal" step="0.1" min="0"><small>thickness, 0 = none</small></label>
       <label>Gap per side <input id="gap" type="number" inputmode="decimal" step="0.05" min="0"><small>fit clearance</small></label>
     </div>
     <div class="chips"><button class="chip" id="swap" type="button">Swap portrait / landscape</button></div>
@@ -96,7 +104,19 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
     <h2>Frame</h2>
     <div class="chips" id="styles" role="group" aria-label="Frame style"></div>
     <div class="grid">
-      <label>Border width <input id="border" type="number" inputmode="decimal" step="0.5" min="1.2"><small>beyond the photo pocket</small></label>
+      <label>Front opening
+        <select id="door">
+          <option value="fixed">Fixed front, load from the back</option>
+          <option value="bezel">Removable front bezel, swap photos from the front</option>
+        </select>
+      </label>
+      <label class="check" style="grid-column:1/-1"><input id="tray" type="checkbox" checked> Glass tray: a snap-in rim under the bezel holds the glass</label>
+      <label>Glass clearance <input id="glassFit" type="number" inputmode="decimal" step="0.05" min="0" max="0.6"><small>mm gap around the glass in the tray</small></label>
+      <label>Bezel fit <input id="bezFit" type="number" inputmode="decimal" step="0.05" min="0" max="0.4"><small>mm clearance. Lower is tighter</small></label>
+    </div>
+    <p class="note" id="doorNote"></p>
+    <div class="grid">
+      <label>Frame width <input id="border" type="number" inputmode="decimal" step="0.5" min="1.2"><small>visible border around the photo</small></label>
       <label>Front lip thickness <input id="lip" type="number" inputmode="decimal" step="0.1" min="0.8"><small>plastic over the photo</small></label>
       <label>Overlap <input id="overlap" type="number" inputmode="decimal" step="0.5" min="1"><small>lip over photo edge</small></label>
       <label>Style size <input id="feat" type="number" inputmode="decimal" step="0.5" min="0"><small>chamfer, round, bevel, step</small></label>
@@ -171,7 +191,10 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
       <label>Preview color <input id="color" type="color"></label>
     </div>
     <p class="note" id="orientNote"></p>
+    <label class="check"><input id="pieceColor" type="checkbox" checked> Color parts by group in the preview (frame, bezel, back plate, keys)</label>
     <label class="check"><input id="showPhoto" type="checkbox" checked> Show sample photo in preview</label>
+    <label class="check"><input id="explode" type="checkbox"> Pull split pieces apart in the preview</label>
+    <label class="check"><input id="railDiag" type="checkbox" checked> Mitered corners: print long rails at 45° on the bed instead of cutting them</label>
   </section>
 
   <section>
@@ -280,22 +303,22 @@ function extrudePoly(outer, holes, z0, z1) {
 
 // ---------- frame
 function buildProfile(p) {
-  const { dp, dout, pt, T, style } = p;
+  const { dp, dout, pt, T, style } = p, mz = p.minZ || 0;
   let f = Math.max(0, p.f), g = Math.max(0, p.g);
   const pts = [[0, pt], [dp, pt], [dp, 0], [dout, 0]];
   const wall = (dout - dp) - 0.8;
-  let top = [], bevelF = 0;
+  let top = [], bevelF = 0, stepIn = 0;
   if (style === 'flat') {
     top = [[dout, T]];
   } else if (style === 'chamfer') {
-    f = Math.max(0, Math.min(f, T - 0.8, wall));
+    f = Math.max(0, Math.min(f, T - 0.8, wall, T - mz));
     top = f > 0.01 ? [[dout, T - f], [dout - f, T]] : [[dout, T]];
   } else if (style === 'bevel') {
-    f = Math.max(0, Math.min(f, T - 1, (T - pt - 0.8) * dout / Math.max(dp, 1e-6)));
+    f = Math.max(0, Math.min(f, T - 1, (T - pt - 0.8) * dout / Math.max(dp, 1e-6), T - mz));
     bevelF = f;
     top = [[dout, T - f]];
   } else if (style === 'round') {
-    f = Math.max(0, Math.min(f, T - 0.8, wall));
+    f = Math.max(0, Math.min(f, T - 0.8, wall, T - mz));
     if (f > 0.01) {
       for (let k = 0; k <= 8; k++) {
         const ph = (k / 8) * Math.PI / 2;
@@ -303,16 +326,23 @@ function buildProfile(p) {
       }
     } else top = [[dout, T]];
   } else if (style === 'stepped') {
-    f = Math.max(0, Math.min(f, T - 1));
+    f = Math.max(0, Math.min(f, T - 1, T - mz));
     const ds = (dp + dout) / 2;
     top = f > 0.01 ? [[dout, T - f], [ds, T - f], [ds, T]] : [[dout, T]];
+  } else if (style === 'stepin') {
+    // reversed step: the outer half is full height, the half beside the photo window is lowered
+    f = Math.max(0, Math.min(f, T - pt - 0.8));
+    const ds = (dp + dout) / 2;
+    top = f > 0.01 ? [[dout, T], [ds, T], [ds, T - f]] : [[dout, T]];
+    stepIn = f > 0.01 ? f : 0;
   }
-  const gg = Math.max(0, Math.min(g, T - pt - 0.8));
+  const Tin = T - stepIn;
+  const gg = Math.max(0, Math.min(g, Tin - pt - 0.8));
   let end;
   if (gg > 0.01) {
-    const zAt = bevelF > 0 ? T - bevelF * gg / dout : T;
-    end = [[gg, zAt], [0, T - gg]];
-  } else end = [[0, T]];
+    const zAt = bevelF > 0 ? T - bevelF * gg / dout : Tin;
+    end = [[gg, zAt], [0, Tin - gg]];
+  } else end = [[0, Tin]];
   return pts.concat(top, end);
 }
 function profileTop(profile, d) {
@@ -362,13 +392,36 @@ function buildFrame(o) {
   const hw = (o.w - 2 * o.overlap) / 2, hh = (o.h - 2 * o.overlap) / 2;
   const dp = o.overlap + o.gap;
   const dout = dp + o.border;
-  const needPlate = !!(o.plate || o.stand || (o.hang && o.hang !== 'none'));
-  const pocketDepth = o.stack + (needPlate ? o.plateT : 0);
+  const bez = o.door === 'bezel';
+  const needPlate = bez || !!(o.plate || o.stand || (o.hang && o.hang !== 'none'));
+  const lt2 = bez ? Math.min(2, o.plateT) : 0;   // back ledge the plate rests on (removable bezel only)
+  // glass tray: a rim under the bezel holds the glass so it lifts off with the bezel; a small barb snaps it in
+  const TR = { tw: 1.4, bc: 0.25, bp: 0.5, lipT: 0.8 };
+  const gcl = o.glassFit == null ? 0.2 : o.glassFit;
+  const dRimOut = dp - TR.bc, dRimIn = dRimOut - TR.tw, dTip = dRimIn - gcl - TR.bp;
+  const trayWant = bez && (o.glass || 0) > 0 && o.tray !== false;
+  const tray = trayWant && dTip >= 0.6;
+  const trayExtra = tray ? TR.lipT : 0;
+  const pocketDepth = o.stack + (o.glass || 0) + (needPlate ? o.plateT : 0) + lt2 + trayExtra;
   const T = o.lip + pocketDepth;
-  const profile = buildProfile({ dp, dout, pt: pocketDepth, T, style: o.style, f: o.feat, g: o.bevel });
+  const full = buildProfile({ dp, dout, pt: pocketDepth, T, style: o.style, f: o.feat, g: o.bevel, minZ: bez ? pocketDepth + 0.8 : 0 });
+  let profile = full, bezProfile = null, bezel = null, dKeyMax = null, keyD = null;
+  if (bez) {
+    const cb = o.bezFit == null ? 0.05 : o.bezFit, pd = pocketDepth;
+    const sw = Math.min(1.6, o.border * 0.25), sd = Math.min(3, pd - 2), zs = pd - sd + 0.3;
+    const lw = Math.max(0.5, Math.min(3, dp - 0.3));
+    profile = [[dp - lw, lt2], [dp - lw, 0], [dout, 0], [dout, pd - sd], [dout - sw - cb, pd - sd], [dout - sw - cb, pd], [dp, pd], [dp, lt2]];
+    const g = o.glass || 0, zb = pd - g - TR.lipT;
+    const rim = tray ? [[dRimIn, pd], [dRimIn, pd - g], [dTip, pd - g], [dTip, pd - g - 0.2], [dRimIn, zb], [dRimOut, zb], [dRimOut, pd]] : [];
+    bezProfile = [[0, pd]].concat(rim, [[dout - sw, pd], [dout - sw, zs], [dout, zs]], full.slice(4));
+    dKeyMax = dout - sw - cb - 0.8;
+    keyD = (dp + 1.0 + dKeyMax) / 2;
+  }
   const frame = sweep(profile, hw, hh, dout, o.corner, square, n);
+  if (bez) bezel = sweep(bezProfile, hw, hh, dout, o.corner, square, n);
   const outerW = 2 * (hw + dout), outerH = 2 * (hh + dout);
-  const res = { frame, plate: null, leg: null, T, pocketDepth, outerW, outerH, winW: 2 * hw, winH: 2 * hh, dp, dout,
+  const res = { frame, bezel, bezProfile, door: bez ? 'bezel' : 'fixed', ledgeT: lt2, dKeyMax, keyD,
+                plate: null, leg: null, T, pocketDepth, bezSkirtD: bez ? dout - Math.min(1.6, o.border * 0.25) : 0, tray: tray ? { glassW: 2 * (hw + dRimIn - gcl), glassH: 2 * (hh + dRimIn - gcl) } : null, trayFailed: trayWant && !tray, photoTop: pocketDepth - (o.glass || 0) - trayExtra, outerW, outerH, winW: 2 * hw, winH: 2 * hh, dp, dout,
                 hw, hh, profile, Ro: square ? 0 : o.corner, needPlate, legLen: 0, legW: 0 };
   if (needPlate) {
     const c = 0.15;
@@ -405,7 +458,7 @@ function buildFrame(o) {
       const { pz, lt, phi } = STAND;
       const ph = phi * Math.PI / 180, al = o.lean * Math.PI / 180;
       const s = 0.6 * outerH;
-      const legLen = (s * Math.cos(al) - (T + pz) * Math.sin(al)) / Math.cos(ph - al);
+      const legLen = (s * Math.cos(al) - (T - lt2 + pz) * Math.sin(al)) / Math.cos(ph - al);
       const e = (pz - (lt / 2) * Math.cos(ph)) / Math.sin(ph);
       const lw = Math.round(Math.min(30, Math.max(16, outerW * 0.1)));
       const yp = -outerH / 2 + s;
@@ -427,10 +480,11 @@ function buildFrame(o) {
 }
 
 // ---------- cut planes
-function planeAxis(axis) {
+function planeAxis(axis, c0) {
   const n = [0, 0, 0]; n[axis] = 1;
-  return { kind: 'axis', axis, c: 0, n, maleSide: 'neg',
-    dist: p => p[axis], uvw: p => toUVW(axis, p), xyz: (u, v, w) => toXYZ(axis, u, v, w) };
+  const c = c0 || 0;
+  return { kind: 'axis', axis, c, n, maleSide: 'neg',
+    dist: p => p[axis] - c, uvw: p => toUVW(axis, p), xyz: (u, v, w) => toXYZ(axis, u, v, w) };
 }
 function planeDiag(nx, ny, c, maleSide, pointAtD) {
   const tx = -ny, ty = nx;
@@ -553,7 +607,8 @@ const pkW = (pk, side, a, b, z) => [pk.C[0] + a * pk.t[0] + side * b * pk.n[0], 
 function planKey(res, o, locs) {
   const bw = res.dout - res.dp, m = 1.0, clr = Math.max(0, o.fit == null ? 0.1 : o.fit);
   const minOuter = Math.min(res.outerW, res.outerH);
-  const top = locs.every(l => l.diag) ? bw * 0.9 : bw / 2 - 1.2;
+  const dMax = res.dKeyMax || (res.dout - m);
+  const top = locs.every(l => l.diag) ? (res.dKeyMax ? (dMax - res.dp) * 0.9 : bw * 0.9) : (res.dKeyMax ? (dMax - res.dp - m) / 2 : bw / 2 - 1.2);
   for (let ww = top; ww >= 2.4; ww -= 0.25) {
     const hn = 0.6 * ww, pwCap = (ww - hn) / KEY_TAN;
     const pwT = Math.min(pwCap, Math.max(1.5 * ww, 0.055 * minOuter));
@@ -573,7 +628,7 @@ function planKey(res, o, locs) {
         for (const [bx, ay] of pts) {
           const x = l.C[0] + ay * t[0] + bx * l.n[0], y = l.C[1] + ay * t[1] + bx * l.n[1];
           const d = ringD(res, x, y);
-          if (d < res.dp + m || d > res.dout - m) { ok = false; break; }
+          if (d < res.dp + m || d > dMax) { ok = false; break; }
           tmin = Math.min(tmin, profileTop(res.profile, d));
         }
         if (!ok) break;
@@ -795,7 +850,7 @@ function splitPlane(tris, P, connFn) {
 
 function splitSet(tris, cuts, connFn, pk) {
   pk = pk || {};
-  const pl = ax => Object.assign(planeAxis(ax), { pockets: (ax === 0 ? pk.x : pk.y) || [], log: pk.log });
+  const pl = ax => Object.assign(planeAxis(ax, ax === 0 ? cuts.ox : cuts.oy), { pockets: (ax === 0 ? pk.x : pk.y) || [], log: pk.log });
   let pieces = [{ tris, sx: 0, sy: 0 }];
   if (cuts.x) pieces = [].concat.apply([], pieces.map(p => {
     const r = splitPlane(p.tris, pl(0), connFn);
@@ -823,8 +878,8 @@ function miterPlanes(res) {
     BL: planeDiag(s2, -s2, (hh - hw) * s2, 'pos', pointAt(-1, -1))
   };
 }
-function miterPieces(res, connFn, planes, pockets, log) {
-  const { profile, hw, hh, dout, Ro } = res;
+function miterPieces(res, connFn, planes, pockets, log, profOverride) {
+  const { hw, hh, dout, Ro } = res, profile = profOverride || res.profile;
   const square = Ro < 0.01, n = 12;
   const rings = ringsFor(profile, hw, hh, dout, Ro, square, n);
   const P = rings.length, M = rings[0].length, k = square ? 1 : n + 1, mid = square ? 0 : n / 2;
@@ -899,15 +954,19 @@ function pointInPoly(pt, poly) {
   }
   return inside;
 }
-function frameConnFn(res, o, diag) {
+function frameConnFn(res, o, diag, bz) {
   const want = o.joint;
   res.connUsed = 'none';
   if (!want || want === 'butt') { res.connUsed = 'butt'; return null; }
   const order = { snap: ['snap', 'peg', 'pin'], peg: ['peg', 'pin'], pins: ['pin'], pin: ['pin'] }[want] || ['pin'];
   const fit = o.fit == null ? 0.05 : o.fit;
-  const { dp, dout, profile } = res, border = dout - dp, dm = dp + border / 2;
+  const { dp, dout } = res;
+  // bz: pins in the removable bezel (spans d = 0 .. skirt, floor at the pocket depth)
+  const profile = bz ? res.bezProfile : res.profile, zlo = bz ? res.pocketDepth : 0;
+  const dLo = bz ? 0.6 : dp + 0.05, dHi = bz ? res.bezSkirtD - 0.2 : dout - 0.3;
+  const base0 = bz ? 0 : dp, border = bz ? dHi : dout - dp, dm = base0 + border / 2;
   const straight = 0.9 * (Math.min(res.hw, res.hh) + dout - res.Ro);
-  const tAt = d => profileTop(profile, d);
+  const tAt = d => profileTop(profile, d) - zlo;
   const tmin = (d, rc) => Math.min(tAt(d - rc - 0.4), tAt(d + rc + 0.4), tAt(d), tAt(d - rc), tAt(d + rc));
 
   const spec = (kind, sc) => {
@@ -918,7 +977,7 @@ function frameConnFn(res, o, diag) {
     // candidate radial positions
     let cands;
     if (diag) {
-      const d1 = dp + rc + 0.5, d2 = d1 + 2 * rc + 1.2;
+      const d1 = Math.max(base0 + rc + 0.5, dLo + rc + 0.4), d2 = d1 + 2 * rc + 1.2;
       cands = [[d1, d2], [d1]];
     } else {
       const delta = Math.min(border * 0.25, 5);
@@ -928,13 +987,13 @@ function frameConnFn(res, o, diag) {
       if (ds.length === 2 && !diag && (ds[1] - ds[0]) < 2 * rc + 1.6) continue;
       let ok = true, tm = 1e9;
       for (const d of ds) {
-        if (d - rc - 0.4 < dp + 0.05 || d + rc + 0.4 > dout - 0.3 && !diag) ok = false;
-        if (diag && d + (Dh) * Math.SQRT1_2 + rc > dout - 0.4) ok = false;
+        if (d - rc - 0.4 < dLo || d + rc + 0.4 > dHi && !diag) ok = false;
+        if (diag && d + (Dh) * Math.SQRT1_2 + rc > dHi - 0.1) ok = false;
         tm = Math.min(tm, tmin(d, rc));
       }
       if (!ok || tm < 2 * rc + 1.2) continue;
       if (!diag && Dh > straight) continue;
-      return { kind, rc, L, Dh, dims, ds, zc: tm / 2 };
+      return { kind, rc, L, Dh, dims, ds, zc: zlo + tm / 2 };
     }
     return null;
   };
@@ -988,6 +1047,7 @@ function normalize(tris) {
   const { mn, mx } = bbox(tris);
   return { tris: tris.map(t => t.map(p => [p[0] - mn[0], p[1] - mn[1], p[2] - mn[2]])), w: mx[0] - mn[0], h: mx[1] - mn[1], d: mx[2] - mn[2] };
 }
+function rotZ(tris, a) { const c = Math.cos(a), sn = Math.sin(a); return tris.map(t => t.map(p => [p[0] * c - p[1] * sn, p[0] * sn + p[1] * c, p[2]])); }
 function rot90(tris) { return tris.map(t => t.map(p => [p[1], -p[0], p[2]])); }
 function tagName(base, sx, sy) { return base + ((sx || sy) ? '_' + (sy < 0 ? 'B' : sy > 0 ? 'T' : '') + (sx < 0 ? 'L' : sx > 0 ? 'R' : '') : ''); }
 
@@ -1038,8 +1098,12 @@ function buildModel(o, bed, face) {
   else if (mode === 'quad') { fc = pc = { x: true, y: true }; }
   const res = buildFrame(Object.assign({}, oo, { cutX: pc.x, cutY: pc.y }));
   const cuts = fc;
-  const dm = res.dp + (res.dout - res.dp) / 2, xc = res.hw + dm, yc = res.hh + dm;
-  const railX = diag && res.outerW > lim, railY = diag && res.outerH > lim;   // long mitered rails get cut in the middle too
+  const dm = res.keyD || (res.dp + (res.dout - res.dp) / 2), xc = res.hw + dm, yc = res.hh + dm;
+  // a long thin rail fits a square bed corner to corner: (length + width) / sqrt 2
+  const railW = res.dout + (res.Ro > 0 ? res.Ro : 0);
+  const fitsDiag = L => oo.railDiag !== false && (L + railW) * Math.SQRT1_2 <= lim - 1;
+  const railX = diag && res.outerW > lim && !fitsDiag(res.outerW), railY = diag && res.outerH > lim && !fitsDiag(res.outerH);   // other long mitered rails get cut in the middle
+  const rotRails = { x: diag && res.outerW > lim && !railX, y: diag && res.outerH > lim && !railY };
   const anyCut = diag || fc.x || fc.y;
   let want = oo.joint, key = null, connFn = null;
   const keyLog = [];
@@ -1059,6 +1123,15 @@ function buildModel(o, bed, face) {
     if (key) { key.locs = locs; key.planes = planes; }
     else { warnings.push('The border is too narrow or thin for a dovetail key. Filament pins are used instead.'); want = 'pins'; }
   }
+  const split1 = (pieces, name, ax, pockets, conn, off, nolog) => pieces.reduce((acc, p) => {
+    if (p.name !== name) { acc.push(p); return acc; }
+    const P = Object.assign(planeAxis(ax, off), { pockets, log: nolog ? null : keyLog });
+    const r = splitPlane(p.tris, P, conn || null);
+    const nm = ax === 0 ? ['L', 'R'] : ['B', 'T'];
+    acc.push(Object.assign({}, p, { tris: r.neg, name: name + '_' + nm[0], sx: ax === 0 ? -1 : p.sx, sy: ax === 1 ? -1 : p.sy }),
+             Object.assign({}, p, { tris: r.pos, name: name + '_' + nm[1], sx: ax === 0 ? 1 : p.sx, sy: ax === 1 ? 1 : p.sy }));
+    return acc;
+  }, []);
   let framePieces;
   if (key) {
     res.connUsed = 'key';
@@ -1066,15 +1139,6 @@ function buildModel(o, bed, face) {
     if (diag) {
       const pm = {}; key.locs.forEach(l => { if (l.corner) pm[l.corner] = mkp(l); });
       framePieces = miterPieces(res, null, key.planes, pm, keyLog);
-      const split1 = (pieces, name, ax, pockets) => pieces.reduce((acc, p) => {
-        if (p.name !== name) { acc.push(p); return acc; }
-        const P = Object.assign(planeAxis(ax), { pockets, log: keyLog });
-        const r = splitPlane(p.tris, P, null);
-        const nm = ax === 0 ? ['L', 'R'] : ['B', 'T'];
-        acc.push(Object.assign({}, p, { tris: r.neg, name: name + '_' + nm[0], sx: ax === 0 ? -1 : p.sx, sy: ax === 1 ? -1 : p.sy }),
-                 Object.assign({}, p, { tris: r.pos, name: name + '_' + nm[1], sx: ax === 0 ? 1 : p.sx, sy: ax === 1 ? 1 : p.sy }));
-        return acc;
-      }, []);
       if (railX) {
         framePieces = split1(framePieces, 'frame_top', 0, [mkPocket(key, [0, yc], [1, 0])]);
         framePieces = split1(framePieces, 'frame_bottom', 0, [mkPocket(key, [0, -yc], [1, 0])]);
@@ -1099,6 +1163,33 @@ function buildModel(o, bed, face) {
     framePieces = diag ? miterPieces(res, connFn) : splitSet(res.frame, fc, connFn);
   }
   framePieces = framePieces.map(p => Object.assign(p, { name: p.name || tagName('frame', p.sx, p.sy), kind: 'frame' }));
+  if (res.trayFailed) warnings.push('The photo overlap is too small for a glass tray. Raise Overlap to about 3 mm or more, or turn the tray off.');
+  let bezelPieces = [];
+  if (res.bezel) {
+    // Bezel joints: pins when the plate is thick enough, flat glue otherwise. Cuts are shifted off the
+    // frame's cuts so the solid frame body bridges every bezel seam.
+    const bo = Object.assign({}, oo, { joint: oo.joint === 'butt' ? 'butt' : 'pins' });
+    const saved = { connUsed: res.connUsed, connCount: res.connCount, connDepth: res.connDepth, connL: res.connL };
+    const bConn = (diag || fc.x || fc.y) ? frameConnFn(res, bo, diag, true) : null;
+    const bUsed = res.connUsed;
+    Object.assign(res, saved);
+    const straightMax = (hwv, Ro) => hwv + res.dout - Ro - 12;
+    const stag = (outer, half) => { const s = Math.min(0.12 * outer, lim - outer / 2 - 0.5, straightMax(half, res.Ro)); return s >= 6 ? s : 0; };
+    const ox = fc.x ? stag(res.outerW, res.hw) : 0, oy = fc.y ? stag(res.outerH, res.hh) : 0;
+    if (diag) {
+      bezelPieces = miterPieces(res, bConn, null, null, null, res.bezProfile);
+      const sx = stag(res.outerW, res.hw), sy = stag(res.outerH, res.hh);
+      if (railX) { bezelPieces = split1(bezelPieces, 'frame_top', 0, [], bConn, sx, true); bezelPieces = split1(bezelPieces, 'frame_bottom', 0, [], bConn, sx, true); }
+      if (railY) { bezelPieces = split1(bezelPieces, 'frame_right', 1, [], bConn, sy, true); bezelPieces = split1(bezelPieces, 'frame_left', 1, [], bConn, sy, true); }
+    } else bezelPieces = splitSet(res.bezel, { x: fc.x, y: fc.y, ox, oy }, bConn, {});
+    bezelPieces = bezelPieces.map(p => Object.assign(p, { name: p.name ? p.name.replace('frame_', 'bezel_') : tagName('bezel', p.sx, p.sy), kind: 'bezel' }));
+    res.bezelJoint = bezelPieces.length > 1 ? (bConn ? 'pin' : 'glue') : 'none';
+    res.bezelStagger = (ox || oy) ? Math.max(ox, oy) : 0;
+    if (bezelPieces.length > 1) {
+      if (res.bezelJoint === 'pin') warnings.push('The front bezel is cut into ' + bezelPieces.length + ' pieces with ' + (bo.pin || 1.75) + ' mm filament pin holes. Pin and glue them. A larger bed or a ' + 'narrower border lets it print whole.');
+      else warnings.push('The front bezel is cut into ' + bezelPieces.length + ' pieces with flat joints. Glue them, or raise the front lip to 3.5 mm or more so pin holes fit, or use a larger bed so it prints whole.');
+    }
+  }
   let platePieces = [];
   if (res.plate && (pc.x || pc.y) && res.hangUsed && res.hangUsed !== 'none') {
     // keep every keyhole on one plate piece: cut just past the holes instead of through the middle
@@ -1110,10 +1201,11 @@ function buildModel(o, bed, face) {
   }
   if (res.plate) platePieces = plateSplit(res.plateSpec, pc).map(p => Object.assign(p, { name: tagName('back_plate', p.sx, p.sy), kind: 'plate' }));
   const parts = [];
-  framePieces.concat(platePieces).forEach(p => {
-    const t = p.kind === 'frame' ? (face ? flipZ(p.tris, res.T) : p.tris) : flipZ(p.tris, oo.plateT);
-    const nz = normalize(t);
-    parts.push({ name: p.name, kind: p.kind, tris: nz.tris, w: nz.w, h: nz.h, d: nz.d });
+  framePieces.concat(bezelPieces, platePieces).forEach(p => {
+    const t = p.kind === 'frame' ? (face && !res.bezel ? flipZ(p.tris, res.T) : p.tris) : p.kind === 'bezel' ? flipZ(p.tris, res.T) : flipZ(p.tris, oo.plateT);
+    const rot = (p.kind === 'frame' || p.kind === 'bezel') && diag && ((p.name || '').match(/^(frame|bezel)_(top|bottom)$/) ? rotRails.x : (p.name || '').match(/^(frame|bezel)_(left|right)$/) ? rotRails.y : false);
+    const nz = normalize(rot ? rotZ(t, Math.PI / 4) : t);
+    parts.push({ name: p.name, kind: p.kind, tris: nz.tris, w: nz.w, h: nz.h, d: nz.d, rot45: !!rot });
   });
   if (res.leg) { const nz = normalize(res.leg); parts.push({ name: 'kickstand_leg', kind: 'leg', tris: nz.tris, w: nz.w, h: nz.h, d: nz.d }); }
   if (key) {
@@ -1123,7 +1215,7 @@ function buildModel(o, bed, face) {
   }
   const plates = packPlates(parts, bed, 4);
   plates.forEach(pl => { if (pl.over) warnings.push('"' + pl.items[0].part.name + '" is ' + Math.round(pl.items[0].part.w) + ' × ' + Math.round(pl.items[0].part.h) + ' mm, larger than the ' + bed + ' mm bed. Split it into more pieces.'); });
-  return { res, cuts, diag, framePieces, platePieces, parts, plates, warnings, key, keyCount: keyLog.length };
+  return { res, cuts, diag, rotRails, framePieces, bezelPieces, platePieces, parts, plates, warnings, key, keyCount: keyLog.length };
 }
 
 // ---------- file writers
@@ -1178,24 +1270,35 @@ function make3MF(items, title) {
 (function () {
   var DEF = { w: 127, h: 177.8, stack: 3, gap: 0.3, border: 15, lip: 2.4, overlap: 4, feat: 3, corner: 0, bevel: 0,
               plate: true, plateT: 2.4, hang: 'none', hangEdge: 'top', stand: false, lean: 15, split: 'auto', joint: 'key', pin: 1.75, fit: 0.1,
-              bed: 220, orient: 'face', style: 'flat', color: '#d9d4c7', showPhoto: true, format: 'stl', view: 'assembled' };
+              bed: 220, orient: 'face', style: 'flat', color: '#d9d4c7', showPhoto: true, explode: false, pieceColor: true, railDiag: true, door: 'fixed', glass: 0, tray: true, glassFit: 0.2, bezFit: 0.05, format: 'stl', view: 'assembled' };
   var s = Object.assign({}, DEF);
-  var NUM = ['w', 'h', 'stack', 'gap', 'border', 'lip', 'overlap', 'feat', 'corner', 'bevel', 'plateT', 'lean', 'pin', 'fit', 'bed'];
-  var SEL = ['hang', 'hangEdge', 'split', 'joint', 'orient', 'format'];
+  var NUM = ['w', 'h', 'stack', 'glass', 'gap', 'border', 'lip', 'overlap', 'feat', 'corner', 'bevel', 'plateT', 'lean', 'pin', 'fit', 'bezFit', 'glassFit', 'bed'];
+  var LEN = ['w', 'h', 'stack', 'glass', 'gap', 'border', 'lip', 'overlap', 'feat', 'corner', 'bevel', 'plateT', 'bed'];
+  var unit = 'mm';
+  function uf() { return unit === 'in' ? 25.4 : 1; }
+  function disp(k) { var v = s[k] / (LEN.indexOf(k) >= 0 ? uf() : 1); return Math.round(v * 1000) / 1000; }
+  function syncInputs() {
+    NUM.forEach(function (k) {
+      $(k).value = disp(k);
+      if (LEN.indexOf(k) >= 0) { var st = unit === 'in' ? (k === 'gap' || k === 'lip' || k === 'plateT' || k === 'bevel' ? 0.01 : 0.05) : ({ w: 0.1, h: 0.1, gap: 0.05, corner: 1, bed: 10 }[k] || (k === 'border' || k === 'overlap' || k === 'feat' ? 0.5 : 0.1)); $(k).step = st; $(k).removeAttribute('min'); }
+    });
+    $('unitNote').textContent = unit === 'in' ? 'Sizes in inches. Files are always made in millimetres.' : 'Sizes in millimetres.';
+  }
+  var SEL = ['hang', 'hangEdge', 'split', 'joint', 'orient', 'format', 'door'];
   var PRESETS = [['4×6 in', 101.6, 152.4], ['5×7 in', 127, 177.8], ['8×10 in', 203.2, 254], ['A5', 148, 210], ['A4', 210, 297], ['Square 4 in', 101.6, 101.6]];
-  var STYLES = [['flat', 'Flat'], ['chamfer', 'Chamfer'], ['bevel', 'Bevel'], ['round', 'Round'], ['stepped', 'Stepped']];
+  var STYLES = [['flat', 'Flat'], ['chamfer', 'Chamfer'], ['bevel', 'Bevel'], ['round', 'Round'], ['stepped', 'Stepped'], ['stepin', 'Reverse step']];
   var VIEWS = [['assembled', 'Assembled'], ['layout', 'Print layout']];
   var $ = function (id) { return document.getElementById(id); };
   var model = null;
 
   // ----- controls
-  NUM.forEach(function (k) { $(k).value = s[k]; });
+  syncInputs();
   SEL.forEach(function (k) { $(k).value = s[k]; });
   $('plate').checked = s.plate; $('stand').checked = s.stand; $('color').value = s.color;
 
   PRESETS.forEach(function (p) {
     var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = p[0];
-    b.addEventListener('click', function () { s.w = p[1]; s.h = p[2]; $('w').value = s.w; $('h').value = s.h; update(); });
+    b.addEventListener('click', function () { s.w = p[1]; s.h = p[2]; syncInputs(); update(); });
     $('presets').appendChild(b);
   });
   STYLES.forEach(function (st) {
@@ -1210,15 +1313,21 @@ function make3MF(items, title) {
     b.addEventListener('click', function () { s.view = v[0]; el = v[0] === 'layout' ? 1.2 : 0.95; az = v[0] === 'layout' ? 0 : -0.45; zoom = 1; update(); });
     $('views').appendChild(b);
   });
-  $('swap').addEventListener('click', function () { var t = s.w; s.w = s.h; s.h = t; $('w').value = s.w; $('h').value = s.h; update(); });
+  $('swap').addEventListener('click', function () { var t = s.w; s.w = s.h; s.h = t; syncInputs(); update(); });
+  $('unit').addEventListener('change', function () { unit = $('unit').value; syncInputs(); update(); });
   NUM.forEach(function (k) {
-    $(k).addEventListener('input', function () { var v = parseFloat($(k).value); s[k] = isFinite(v) ? v : DEF[k]; update(); });
+    $(k).addEventListener('input', function () { var v = parseFloat($(k).value); s[k] = isFinite(v) ? v * (LEN.indexOf(k) >= 0 ? uf() : 1) : DEF[k]; update(); });
   });
   SEL.forEach(function (k) { $(k).addEventListener('change', function () { s[k] = $(k).value; update(); }); });
   $('plate').addEventListener('change', function () { s.plate = $('plate').checked; update(); });
   $('stand').addEventListener('change', function () { s.stand = $('stand').checked; update(); });
   $('color').addEventListener('input', function () { s.color = $('color').value; update(); });
   $('showPhoto').addEventListener('change', function () { s.showPhoto = $('showPhoto').checked; update(); });
+  $('tray').checked = s.tray;
+  $('tray').addEventListener('change', function () { s.tray = $('tray').checked; update(); });
+  $('railDiag').addEventListener('change', function () { s.railDiag = $('railDiag').checked; update(); });
+  $('pieceColor').addEventListener('change', function () { s.pieceColor = $('pieceColor').checked; update(); });
+  $('explode').addEventListener('change', function () { s.explode = $('explode').checked; update(); });
 
   // ----- 3D preview
   var renderer, scene, camera, group, ready = false;
@@ -1296,27 +1405,36 @@ function make3MF(items, title) {
     if (!ready) return;
     clearGroup();
     var res = m.res, base = new THREE.Color(s.color);
+    var pcAll = m.framePieces.concat(m.bezelPieces || []);
+    // pieces that belong together share a colour: all frame rails, all bezel rails, back plate, stand, keys
+    var KC = { frame: '#5b8fd0', bezel: '#e0a43c', plate: '#5fb58a', leg: '#a77bc4', key: '#d0583a' };
+    var KN = { frame: 'frame', bezel: 'front bezel', plate: 'back plate', leg: 'kickstand', key: 'keys' };
+    var grp = s.pieceColor, kcol = function (k) { return grp ? new THREE.Color(KC[k]) : (k === 'bezel' ? base.clone().offsetHSL(0, 0, 0.06) : k === 'plate' ? base.clone().offsetHSL(0, 0, -0.12) : k === 'leg' ? base.clone().offsetHSL(0, 0, -0.22) : k === 'key' ? new THREE.Color('#c0603a') : base); };
+    var kinds = {};
+    (s.view === 'assembled' ? pcAll : m.parts).forEach(function (p) { kinds[p.kind || 'frame'] = 1; });
+    var leg = $('legend'), order = ['frame', 'bezel', 'plate', 'leg', 'key'].filter(function (k) { return kinds[k]; });
+    leg.hidden = !(grp && order.length > 1);
+    leg.innerHTML = order.map(function (k) { return '<div><i style="background:' + KC[k] + '"></i>' + KN[k] + '</div>'; }).join('');
     if (s.view === 'assembled') {
-      var ex = m.framePieces.length > 1 ? 3 : 0;
-      m.framePieces.forEach(function (p) {
-        var mesh = new THREE.Mesh(geomFrom(p.tris), mat(base));
+      var ex = (m.framePieces.length > 1 && s.explode) ? 3 : 0;
+      pcAll.forEach(function (p) {
+        var mesh = new THREE.Mesh(geomFrom(p.tris), mat(kcol(p.kind || 'frame')));
         mesh.position.set(p.sx * ex, p.sy * ex, 0); group.add(mesh);
       });
       if (s.showPhoto) {
         var ph = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), new THREE.MeshBasicMaterial({ map: photoTexture(s.w, s.h) }));
-        ph.position.z = res.pocketDepth - 0.1; group.add(ph);
+        ph.position.z = (res.photoTop != null ? res.photoTop : res.pocketDepth) - 0.1; group.add(ph);
       }
       group.position.set(0, -res.T / 2, 0);
       baseR = Math.max(res.outerW, res.outerH) * 2.1 + 40;
     } else {
       var n = m.plates.length, pitch = s.bed + 20, total = n * pitch - 20;
-      var cols = { frame: base, plate: base.clone().offsetHSL(0, 0, -0.12), leg: base.clone().offsetHSL(0, 0, -0.22), key: new THREE.Color('#c0603a') };
       m.plates.forEach(function (pl, i) {
         var ox = i * pitch;
         var pts = [new THREE.Vector3(ox, 0, 0), new THREE.Vector3(ox + s.bed, 0, 0), new THREE.Vector3(ox + s.bed, s.bed, 0), new THREE.Vector3(ox, s.bed, 0)];
         group.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x8a9aa0 })));
         pl.items.forEach(function (it) {
-          var mesh = new THREE.Mesh(geomFrom(it.part.tris), mat(cols[it.part.kind] || base));
+          var mesh = new THREE.Mesh(geomFrom(it.part.tris), mat(kcol(it.part.kind)));
           mesh.position.set(ox + it.x, it.y, 0); group.add(mesh);
         });
       });
@@ -1334,11 +1452,12 @@ function make3MF(items, title) {
     return v;
   }
   function fmt(n, d) { return (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toString(); }
+  function lenTxt(mm) { return unit === 'in' ? fmt(mm / 25.4, 2) + ' in' : fmt(mm, 1) + ' mm'; }
   function inch(mm) { return fmt(mm / 25.4, 2) + ' in'; }
   function opts() {
     return { w: s.w, h: s.h, stack: s.stack, overlap: s.overlap, gap: s.gap, border: s.border, lip: s.lip, style: s.style,
              feat: s.feat, bevel: s.bevel, corner: s.corner, plate: s.plate, plateT: s.plateT, hang: s.hang, hangEdge: s.hangEdge, stand: s.stand,
-             lean: s.lean, split: s.split, joint: s.joint, pin: s.pin, fit: s.fit };
+             lean: s.lean, split: s.split, joint: s.joint, pin: s.pin, fit: s.fit, glass: s.glass, door: s.door, bezFit: s.bezFit, tray: s.tray, glassFit: s.glassFit, railDiag: s.railDiag };
   }
   function validate() {
     var e = [];
@@ -1353,14 +1472,18 @@ function make3MF(items, title) {
     if (s.pin < 1.5 || s.pin > 3.2) e.push('Pin diameter must be between 1.5 and 3.2 mm.');
     if (s.fit < -0.1 || s.fit > 0.4) e.push('Joint fit must be between -0.1 and 0.4 mm.');
     if (s.bed < 50) e.push('Bed size must be at least 50 mm.');
+    if (s.glass < 0) e.push('Glass thickness cannot be negative.');
+    if (s.door === 'bezel' && s.border < 6) e.push('A removable bezel needs a frame width of at least 6 mm.');
+    if (s.door === 'bezel' && (s.bezFit < 0 || s.bezFit > 0.4)) e.push('Bezel fit must be between 0 and 0.4 mm.');
     if (typeof earcut === 'undefined' && (s.hang !== 'none' || s.split !== 'off' || s.stand)) e.push('A helper library did not load, so hanging slots, the kickstand and splitting are unavailable. Reload the page.');
     return e;
   }
   function update() {
-    $('w_in').textContent = inch(s.w); $('h_in').textContent = inch(s.h);
+    $('w_in').textContent = unit === 'in' ? fmt(s.w, 1) + ' mm' : inch(s.w); $('h_in').textContent = unit === 'in' ? fmt(s.h, 1) + ' mm' : inch(s.h);
     Array.prototype.forEach.call($('styles').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.style === s.style)); });
     Array.prototype.forEach.call($('views').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.view === s.view)); });
-    var needPlate = s.hang !== 'none' || s.stand;
+    $('doorNote').textContent = s.door === 'bezel' ? 'The front bezel is a separate piece that presses over the frame. Pull it off, drop in the glass and photo, and press it back. A back plate is always included and rests on a ledge inside.' : '';
+    var needPlate = s.hang !== 'none' || s.stand || s.door === 'bezel';
     $('plate').checked = s.plate || needPlate; $('plate').disabled = needPlate;
     var errs = validate(), warns = [], msgs = $('msgs'); msgs.innerHTML = '';
     model = null;
@@ -1370,12 +1493,13 @@ function make3MF(items, title) {
     }
     if (model) {
       var res = model.res;
+      if (res.tray) $('doorNote').textContent = $('doorNote').textContent.replace('drop in the glass and photo', 'swap the photo') + ' Cut the glass or acrylic to ' + lenTxt(res.tray.glassW) + ' × ' + lenTxt(res.tray.glassH) + ' so it snaps into the tray under the bezel.';
       var vol = 0; model.parts.forEach(function (p) { vol += volume(p.tris); });
-      var nPieces = model.framePieces.length;
+      var nPieces = model.framePieces.length + (model.bezelPieces ? model.bezelPieces.length : 0);
       var tiles = [
-        [fmt(res.outerW, 1) + ' × ' + fmt(res.outerH, 1) + ' mm', 'Outer size'],
-        [fmt(res.winW, 1) + ' × ' + fmt(res.winH, 1) + ' mm', 'Visible window'],
-        [fmt(res.T, 1) + ' mm', 'Total thickness'],
+        [lenTxt(res.outerW) + ' × ' + lenTxt(res.outerH), 'Outer size'],
+        [lenTxt(res.winW) + ' × ' + lenTxt(res.winH), 'Visible window'],
+        [lenTxt(res.T), 'Total thickness'],
         [model.parts.length + ' parts on ' + model.plates.length + (model.plates.length === 1 ? ' plate' : ' plates'), nPieces > 1 ? nPieces + ' frame pieces' : 'Parts to print'],
         ['≈ ' + fmt(vol / 1000 * 1.24, 0) + ' g', 'Solid PLA weight']
       ];
@@ -1395,7 +1519,7 @@ function make3MF(items, title) {
     errs.forEach(function (m) { msgs.insertAdjacentHTML('beforeend', '<div class="msg err">' + m + '</div>'); });
     warns.forEach(function (m) { msgs.insertAdjacentHTML('beforeend', '<div class="msg">' + m + '</div>'); });
     var flat = s.style === 'flat';
-    $('orientNote').textContent = s.orient === 'face'
+    $('orientNote').textContent = s.door === 'bezel' ? 'With a removable bezel the frame body prints back down and the bezel prints front face down. This setting is ignored.' : s.orient === 'face'
       ? (flat ? 'Front face down gives the smoothest face and needs no supports for a flat frame.' : 'Front face down needs supports under the shaped edge. Back down is usually better for this style.')
       : 'Back down needs no supports; the lip bridges the pocket opening. The front shows normal layer lines.';
     $('dl').disabled = !model;
@@ -1425,8 +1549,13 @@ function make3MF(items, title) {
       L.push('Kickstand', '  Set the leg between the two ears on the back plate. Push a length of 1.75 mm filament, about ' + (m.res.legW + 6) + ' mm long, through the ear, leg and ear holes. Melt or glue the ends so it cannot slide out. The short end of the leg stops it at a fixed angle.', '');
     }
     if (s.hang !== 'none') L.push('Hanging', '  The keyhole slots take a screw head up to 9.5 mm across with a shank up to 4.6 mm. Slide the frame down onto the screw.' + (s.hangEdge !== 'top' ? ' Slots on the right edge are for hanging the frame turned 90°, with its right side (seen from the front) at the top.' : '') + '', '');
-    L.push('Back plate', '  Set the photo and glass in the pocket, then the plate. Hold it with a few dabs of glue or tape.', '');
-    L.push('Printing', '  Frame orientation: ' + (s.orient === 'face' ? 'front face down' : 'back down') + '. The back plate prints with its inner face down. The 3MF files already place parts on a ' + s.bed + ' mm bed.');
+    if (m.res.tray) L.push('Glass tray', '  The bezel has a rim underneath that holds the glass or acrylic, so the glass lifts off with the bezel. Cut the glass to ' + lenTxt(m.res.tray.glassW) + ' × ' + lenTxt(m.res.tray.glassH) + ' (' + fmt(s.glass, 1) + ' mm thick), square corners. Tilt one edge under the small lip, then press the opposite edge in until it clicks. The bezel prints front face down, so the lip is a small 0.5 mm overhang; if it prints rough, trim it with a hobby knife. If the glass is loose or will not snap in, change "Glass clearance" and reprint the bezel.', '');
+    if (m.res.door === 'bezel') {
+      L.push('Removable front bezel', '  Print the frame body back down and the bezel front face down. Set the back plate on the ledge inside the body first, then the photo (with its backing), ' + (m.res.tray ? 'then press the bezel, with the glass already snapped into it,' : 'then ' + (s.glass > 0 ? 'the ' + fmt(s.glass, 1) + ' mm glass or acrylic' : 'any glass or acrylic') + '. Press the bezel') + ' straight down over the top edge until it sits flush. To swap the photo, pull the bezel off with your fingertips or a thin plastic card in the seam. If the bezel is too tight or loose, change "Bezel fit" (lower is tighter) and reprint the bezel.', '');
+    } else L.push('Back plate', '  Set the photo and glass in the pocket, then the plate. Hold it with a few dabs of glue or tape.', '');
+    if (m.rotRails && (m.rotRails.x || m.rotRails.y)) L.push('Long rails', '  The long mitered rails are placed corner to corner on the bed (rotated 45°) so they print in one piece. Keep them as placed in the 3MF files, or rotate them in your slicer.', '');
+    if (m.res.door === 'bezel' && m.bezelPieces && m.bezelPieces.length > 1) L.push('Split bezel', '  ' + (m.res.bezelJoint === 'pin' ? 'The bezel pieces have filament pin holes. Pin and glue them.' : 'The bezel pieces have flat joints. Glue them.') + (m.res.bezelStagger ? ' Its seams sit ' + fmt(m.res.bezelStagger, 0) + ' mm off the frame seams, so the frame body bridges every bezel seam.' : ''), '');
+    L.push('Printing', '  Frame orientation: ' + (m.res.door === 'bezel' ? 'body back down, bezel front face down' : s.orient === 'face' ? 'front face down' : 'back down') + '. The back plate prints with its inner face down. The 3MF files already place parts on a ' + s.bed + ' mm bed.');
     return L.join('\n');
   }
   async function download() {
